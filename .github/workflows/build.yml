@@ -241,7 +241,6 @@ jobs:
               private const val KEY_API = "api_key"
               private const val KEY_URL = "base_url"
 
-              // הכתובת המעודכנת לפי התיעוד הרשמי
               const val DEFAULT_URL = "https://api.faceseek.online"
 
               fun getApiKey(ctx: Context): String =
@@ -353,6 +352,29 @@ jobs:
                   null
               }
           }
+
+          // פונקציה חדשה ובטוחה לטעינת קבצים מקומיים מבלי לקרוס את הזיכרון
+          fun decodeFileScaled(path: String, maxDim: Int = 512): Bitmap? {
+              return try {
+                  val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                  BitmapFactory.decodeFile(path, options)
+                  
+                  var inSampleSize = 1
+                  val (width, height) = options.outWidth to options.outHeight
+                  if (width > maxDim || height > maxDim) {
+                      val halfHeight = height / 2
+                      val halfWidth = width / 2
+                      while ((halfHeight / inSampleSize) >= maxDim && (halfWidth / inSampleSize) >= maxDim) {
+                          inSampleSize *= 2
+                      }
+                  }
+                  options.inJustDecodeBounds = false
+                  options.inSampleSize = inSampleSize
+                  BitmapFactory.decodeFile(path, options)
+              } catch (e: Exception) {
+                  null
+              }
+          }
           EOF
 
           cat > app/src/main/java/com/neoface/engine/SocialSearchClient.kt << 'EOF'
@@ -381,10 +403,9 @@ jobs:
               private val apiKey: String,
               private val baseUrl: String
           ) {
-              // עדכון זמני ההמתנה ל-5 דקות (300 שניות) בדיוק כמו שכתוב בתיעוד
               private val http = OkHttpClient.Builder()
                   .connectTimeout(60, TimeUnit.SECONDS)
-                  .readTimeout(300, TimeUnit.SECONDS)
+                  .readTimeout(300, TimeUnit.SECONDS) // עד 5 דקות המתנה
                   .writeTimeout(300, TimeUnit.SECONDS)
                   .build()
 
@@ -398,18 +419,16 @@ jobs:
                       
                       val imgBody = jpeg.toRequestBody("image/jpeg".toMediaType())
                       
-                      // תיקון 1: שם השדה חייב להיות "file" לפי התיעוד
                       val multipart = MultipartBody.Builder()
                           .setType(MultipartBody.FORM)
-                          .addFormDataPart("file", "face.jpg", imgBody)
+                          .addFormDataPart("file", "face.jpg", imgBody) // שדה file
                           .build()
 
-                      // תיקון 2: הנתיב המדויק הוא /v1/api/search
-                      val url = baseUrl.trimEnd('/') + "/v1/api/search"
+                      val url = baseUrl.trimEnd('/') + "/v1/api/search" // נתיב נכון
                       
                       val req = Request.Builder()
                           .url(url)
-                          .header("X-API-Key", apiKey) // לפי התיעוד רק X-API-Key נדרש
+                          .header("X-API-Key", apiKey)
                           .header("Accept", "application/json")
                           .post(multipart)
                           .build()
@@ -433,15 +452,17 @@ jobs:
                       val arr = o.optJSONArray("results") ?: JSONArray()
                       
                       for (i in 0 until arr.length()) {
+                          if (list.size >= 50) break // הגבלה ל-50 תוצאות למניעת קריסת זיכרון
+                          
                           val item = arr.getJSONObject(i)
                           val u = item.optString("source_url", item.optString("url", ""))
                           if (u.isBlank()) continue
                           
                           val s = item.optDouble("score", 0.0).toFloat()
-                          // המרה מ-0-100 לאחוזים (0.0-1.0)
                           val normalizedScore = if (s > 1.0f) s / 100f else s
                           
                           val title = item.optString("title", item.optString("domain", ""))
+                          // אנחנו לא שומרים את image_url כי הוא Base64 ענק שמקריס את האפליקציה
                           list.add(SocialProfile(u, normalizedScore, null, detect(u), title))
                       }
                   } catch (_: Exception) {}
@@ -475,6 +496,7 @@ jobs:
               try {
                   val arr = JSONArray(json)
                   for (i in 0 until arr.length()) {
+                      if (list.size >= 50) break // גם כאן הגבלה ל-50
                       val o = arr.getJSONObject(i)
                       list.add(SocialProfile(
                           url = o.getString("url"),
@@ -770,7 +792,6 @@ jobs:
           package com.neoface.ui
 
           import android.content.Intent
-          import android.graphics.BitmapFactory
           import android.net.Uri
           import androidx.compose.foundation.Image
           import androidx.compose.foundation.background
@@ -803,6 +824,7 @@ jobs:
           import com.neoface.NeoSurface
           import com.neoface.data.SearchDao
           import com.neoface.engine.SocialProfile
+          import com.neoface.engine.decodeFileScaled
           import com.neoface.engine.parseProfiles
           import kotlinx.coroutines.Dispatchers
           import kotlinx.coroutines.launch
@@ -816,11 +838,20 @@ jobs:
               val scope = rememberCoroutineScope()
               var record by remember { mutableStateOf<com.neoface.data.SearchRecord?>(null) }
               var profiles by remember { mutableStateOf<List<SocialProfile>>(emptyList()) }
+              var parseError by remember { mutableStateOf<String?>(null) }
 
               LaunchedEffect(id) {
-                  val r = withContext(Dispatchers.IO) { dao.get(id) }
-                  record = r
-                  profiles = r?.let { parseProfiles(it.resultsJson) } ?: emptyList()
+                  try {
+                      val r = withContext(Dispatchers.IO) { dao.get(id) }
+                      record = r
+                      if (r != null) {
+                          profiles = withContext(Dispatchers.Default) {
+                              try { parseProfiles(r.resultsJson) } catch (e: Exception) { emptyList() }
+                          }
+                      }
+                  } catch (e: Exception) {
+                      parseError = "שגיאה בטעינת הנתונים: ${e.message}"
+                  }
               }
 
               val rec = record
@@ -834,7 +865,8 @@ jobs:
 
                   Surface(color = NeoSurface, modifier = Modifier.fillMaxWidth()) {
                       Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                          val bmp = remember { BitmapFactory.decodeFile(rec.photoPath) }
+                          // שימוש בפונקציה החדשה והבטוחה
+                          val bmp = remember(rec.id) { decodeFileScaled(rec.photoPath, 200) }
                           if (bmp != null) {
                               Image(
                                   bmp.asImageBitmap(), null,
@@ -878,7 +910,11 @@ jobs:
                       }
                   }
 
-                  if (profiles.isEmpty() && rec.error == null) {
+                  if (parseError != null) {
+                      Text(parseError!!, color = NeoRed, modifier = Modifier.padding(16.dp))
+                  }
+
+                  if (profiles.isEmpty() && rec.error == null && parseError == null) {
                       Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                           Column(horizontalAlignment = Alignment.CenterHorizontally,
                               modifier = Modifier.padding(32.dp)) {
@@ -917,20 +953,13 @@ jobs:
                   color = NeoSurface
               ) {
                   Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                      if (!p.thumbnailUrl.isNullOrBlank()) {
-                          AsyncImage(
-                              model = p.thumbnailUrl, contentDescription = null,
-                              modifier = Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)),
-                              contentScale = ContentScale.Crop
-                          )
-                      } else {
-                          Surface(
-                              Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)),
-                              color = NeoBg
-                          ) {
-                              Box(contentAlignment = Alignment.Center) {
-                                  Icon(Icons.Default.Person, null, tint = NeoCyan)
-                              }
+                      // הסרנו את AsyncImage כי אין יותר thumbnailUrl
+                      Surface(
+                          Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)),
+                          color = NeoBg
+                      ) {
+                          Box(contentAlignment = Alignment.Center) {
+                              Icon(Icons.Default.Person, null, tint = NeoCyan)
                           }
                       }
                       Spacer(Modifier.width(12.dp))
@@ -985,7 +1014,6 @@ jobs:
           cat > app/src/main/java/com/neoface/ui/HistoryScreen.kt << 'EOF'
           package com.neoface.ui
 
-          import android.graphics.BitmapFactory
           import androidx.compose.foundation.Image
           import androidx.compose.foundation.background
           import androidx.compose.foundation.clickable
@@ -1011,6 +1039,7 @@ jobs:
           import com.neoface.NeoSurface
           import com.neoface.data.SearchDao
           import com.neoface.data.SearchRecord
+          import com.neoface.engine.decodeFileScaled
           import kotlinx.coroutines.launch
           import java.text.SimpleDateFormat
           import java.util.*
@@ -1052,7 +1081,8 @@ jobs:
                   color = NeoSurface
               ) {
                   Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                      val bmp = remember(rec.id) { BitmapFactory.decodeFile(rec.photoPath) }
+                      // שימוש בפונקציה החדשה והבטוחה
+                      val bmp = remember(rec.id) { decodeFileScaled(rec.photoPath, 150) }
                       if (bmp != null) {
                           Image(bmp.asImageBitmap(), null,
                               modifier = Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)),
