@@ -52,7 +52,6 @@ jobs:
               repositories {
                   google()
                   mavenCentral()
-                  maven { url 'https://jitpack.io' }
               }
           }
           rootProject.name = "NeoFace"
@@ -116,7 +115,6 @@ jobs:
               implementation 'io.coil-kt:coil-compose:2.5.0'
               implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
               implementation 'androidx.core:core-ktx:1.12.0'
-              implementation 'com.github.yalantis:ucrop:2.2.8'
           }
           EOF
 
@@ -127,7 +125,6 @@ jobs:
               <uses-permission android:name="android.permission.CAMERA" />
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
               <uses-feature android:name="android.hardware.camera" android:required="false" />
               
               <queries>
@@ -153,16 +150,6 @@ jobs:
                   android:requestLegacyExternalStorage="true"
                   tools:targetApi="33">
                   
-                  <provider
-                      android:name="androidx.core.content.FileProvider"
-                      android:authorities="${applicationId}.fileprovider"
-                      android:exported="false"
-                      android:grantUriPermissions="true">
-                      <meta-data
-                          android:name="android.support.FILE_PROVIDER_PATHS"
-                          android:resource="@xml/file_paths" />
-                  </provider>
-
                   <activity
                       android:name=".MainActivity"
                       android:exported="true"
@@ -175,13 +162,6 @@ jobs:
                   </activity>
               </application>
           </manifest>
-          EOF
-
-          cat > app/src/main/res/xml/file_paths.xml << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <paths xmlns:android="http://schemas.android.com/apk/res/android">
-              <cache-path name="cropped" path="cropped/" />
-          </paths>
           EOF
 
           cat > app/src/main/res/values/themes.xml << 'EOF'
@@ -261,7 +241,8 @@ jobs:
               private const val KEY_API = "api_key"
               private const val KEY_URL = "base_url"
 
-              const val DEFAULT_URL = "https://faceseek.online/api/v1"
+              // הכתובת המעודכנת לפי התיעוד הרשמי
+              const val DEFAULT_URL = "https://api.faceseek.online"
 
               fun getApiKey(ctx: Context): String =
                   ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_API, "") ?: ""
@@ -348,7 +329,6 @@ jobs:
               return file.absolutePath
           }
 
-          // פונקציה חדשה ובטוחה לטעינת תמונות URI מבלי לקרוס את הזיכרון
           fun decodeUri(ctx: Context, uri: Uri, maxDim: Int = 1024): Bitmap? {
               return try {
                   val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -401,10 +381,11 @@ jobs:
               private val apiKey: String,
               private val baseUrl: String
           ) {
+              // עדכון זמני ההמתנה ל-5 דקות (300 שניות) בדיוק כמו שכתוב בתיעוד
               private val http = OkHttpClient.Builder()
-                  .connectTimeout(30, TimeUnit.SECONDS)
-                  .readTimeout(90, TimeUnit.SECONDS)
-                  .writeTimeout(90, TimeUnit.SECONDS)
+                  .connectTimeout(60, TimeUnit.SECONDS)
+                  .readTimeout(300, TimeUnit.SECONDS)
+                  .writeTimeout(300, TimeUnit.SECONDS)
                   .build()
 
               suspend fun search(bitmap: Bitmap): Result<List<SocialProfile>> = withContext(Dispatchers.IO) {
@@ -414,17 +395,21 @@ jobs:
                           bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
                           out.toByteArray()
                       }
+                      
                       val imgBody = jpeg.toRequestBody("image/jpeg".toMediaType())
+                      
+                      // תיקון 1: שם השדה חייב להיות "file" לפי התיעוד
                       val multipart = MultipartBody.Builder()
                           .setType(MultipartBody.FORM)
-                          .addFormDataPart("image", "face.jpg", imgBody)
+                          .addFormDataPart("file", "face.jpg", imgBody)
                           .build()
 
-                      val url = baseUrl.trimEnd('/') + "/search"
+                      // תיקון 2: הנתיב המדויק הוא /v1/api/search
+                      val url = baseUrl.trimEnd('/') + "/v1/api/search"
+                      
                       val req = Request.Builder()
                           .url(url)
-                          .header("Authorization", "Bearer $apiKey")
-                          .header("X-API-Key", apiKey)
+                          .header("X-API-Key", apiKey) // לפי התיעוד רק X-API-Key נדרש
                           .header("Accept", "application/json")
                           .post(multipart)
                           .build()
@@ -444,33 +429,20 @@ jobs:
               private fun parse(json: String): List<SocialProfile> {
                   val list = mutableListOf<SocialProfile>()
                   try {
-                      val t = json.trim()
-                      val arr: JSONArray = when {
-                          t.startsWith("[") -> JSONArray(t)
-                          t.startsWith("{") -> {
-                              val o = JSONObject(t)
-                              o.optJSONArray("results")
-                                  ?: o.optJSONArray("matches")
-                                  ?: o.optJSONArray("data")
-                                  ?: o.optJSONArray("items")
-                                  ?: JSONArray()
-                          }
-                          else -> JSONArray()
-                      }
+                      val o = JSONObject(json)
+                      val arr = o.optJSONArray("results") ?: JSONArray()
+                      
                       for (i in 0 until arr.length()) {
-                          val o = arr.getJSONObject(i)
-                          val u = o.optString("url",
-                              o.optString("source_url",
-                                  o.optString("link", o.optString("profile_url", ""))))
+                          val item = arr.getJSONObject(i)
+                          val u = item.optString("source_url", item.optString("url", ""))
                           if (u.isBlank()) continue
-                          val s = o.optDouble("score",
-                              o.optDouble("similarity",
-                                  o.optDouble("confidence", 0.0))).toFloat()
-                          val thumb = o.optString("thumbnail",
-                              o.optString("thumbnail_url",
-                                  o.optString("image", null)))
-                          val title = o.optString("title", o.optString("name", ""))
-                          list.add(SocialProfile(u, s, thumb, detect(u), title))
+                          
+                          val s = item.optDouble("score", 0.0).toFloat()
+                          // המרה מ-0-100 לאחוזים (0.0-1.0)
+                          val normalizedScore = if (s > 1.0f) s / 100f else s
+                          
+                          val title = item.optString("title", item.optString("domain", ""))
+                          list.add(SocialProfile(u, normalizedScore, null, detect(u), title))
                       }
                   } catch (_: Exception) {}
                   return list.sortedByDescending { it.score }
@@ -648,8 +620,6 @@ jobs:
           cat > app/src/main/java/com/neoface/ui/CameraScreen.kt << 'EOF'
           package com.neoface.ui
 
-          import android.graphics.Bitmap
-          import android.net.Uri
           import androidx.activity.compose.rememberLauncherForActivityResult
           import androidx.activity.result.contract.ActivityResultContracts
           import androidx.compose.foundation.background
@@ -665,7 +635,6 @@ jobs:
           import androidx.compose.ui.platform.LocalContext
           import androidx.compose.ui.text.style.TextAlign
           import androidx.compose.ui.unit.dp
-          import androidx.core.content.FileProvider
           import com.neoface.*
           import com.neoface.data.SearchRecord
           import com.neoface.data.SearchDao
@@ -673,12 +642,10 @@ jobs:
           import com.neoface.engine.decodeUri
           import com.neoface.engine.savePhoto
           import com.neoface.engine.toJson
-          import com.yalantis.ucrop.UCrop
           import kotlinx.coroutines.Dispatchers
           import kotlinx.coroutines.launch
           import kotlinx.coroutines.withContext
           import org.json.JSONArray
-          import java.io.File
 
           @Composable
           fun CameraScreen(dao: SearchDao, onComplete: (Long) -> Unit) {
@@ -691,81 +658,52 @@ jobs:
               val apiKey = Settings.getApiKey(ctx)
               val baseUrl = Settings.getBaseUrl(ctx)
 
-              val uCropLauncher = rememberLauncherForActivityResult(
-                  contract = ActivityResultContracts.StartActivityForResult()
-              ) { result ->
-                  if (result.resultCode == android.app.Activity.RESULT_OK) {
-                      val croppedUri = UCrop.getOutput(result.data!!)
-                      if (croppedUri != null) {
-                          busy = true
-                          status = "שולח לחיפוש..."
-                          scope.launch {
-                              try {
-                                  // שימוש בפונקציה החדשה והבטוחה שמונעת קריסת זיכרון
-                                  val bmp = decodeUri(ctx, croppedUri, 1024)
-                                  if (bmp == null) {
-                                      errorMessage = "לא ניתן לקרוא את התמונה. נסה שוב."
-                                      busy = false
-                                      return@launch
-                                  }
-                                  
-                                  val localPath = savePhoto(ctx, bmp)
-                                  val client = SocialSearchClient(apiKey = apiKey, baseUrl = baseUrl)
-                                  val apiResult = client.search(bmp)
-                                  val json = try {
-                                      JSONArray().apply {
-                                          apiResult.getOrNull()?.forEach { put(it.toJson()) }
-                                      }.toString()
-                                  } catch (e: Exception) { "[]" }
-                                  
-                                  val count = apiResult.getOrNull()?.size ?: 0
-                                  val err = apiResult.exceptionOrNull()?.message
-                                  val rec = SearchRecord(
-                                      photoPath = localPath,
-                                      resultsJson = json,
-                                      resultCount = count,
-                                      error = err
-                                  )
-                                  val id = withContext(Dispatchers.IO) {
-                                      try { dao.insert(rec) } catch (e: Exception) { 0L }
-                                  }
-                                  withContext(Dispatchers.Main) {
-                                      busy = false
-                                      status = ""
-                                      if (id > 0) onComplete(id)
-                                      else errorMessage = "שגיאה בשמירת הנתונים במסד הנתונים"
-                                  }
-                              } catch (e: Exception) {
-                                  busy = false
-                                  errorMessage = "שגיאה בעיבוד התמונה: ${e.message}"
-                              }
-                          }
-                      }
-                  } else if (result.resultCode == UCrop.RESULT_ERROR) {
-                      val cropError = UCrop.getError(result.data!!)
-                      errorMessage = "שגיאה בחיתוך: ${cropError?.message}"
-                  }
-              }
-
               val getContentLauncher = rememberLauncherForActivityResult(
                   contract = ActivityResultContracts.GetContent()
               ) { uri ->
                   if (uri != null) {
-                      try {
-                          val cropDir = File(ctx.cacheDir, "cropped").apply { mkdirs() }
-                          val destinationFile = File(cropDir, "cropped_${System.currentTimeMillis()}.jpg")
-                          val destinationUri = FileProvider.getUriForFile(
-                              ctx,
-                              "${ctx.packageName}.fileprovider",
-                              destinationFile
-                          )
-                          val uCropIntent = UCrop.of(uri, destinationUri)
-                              .withAspectRatio(1f, 1f)
-                              .withMaxResultSize(1024, 1024)
-                              .getIntent(ctx)
-                          uCropLauncher.launch(uCropIntent)
-                      } catch (e: Exception) {
-                          errorMessage = "שגיאה בפתיחת מסך החיתוך: ${e.message}"
+                      busy = true
+                      status = "מעבד תמונה..."
+                      scope.launch {
+                          try {
+                              val bmp = decodeUri(ctx, uri, 1024)
+                              if (bmp == null) {
+                                  errorMessage = "לא ניתן לקרוא את התמונה. נסה שוב."
+                                  busy = false
+                                  return@launch
+                              }
+                              
+                              val localPath = savePhoto(ctx, bmp)
+                              status = "שולח לשרת (עד 5 דקות)..."
+                              val client = SocialSearchClient(apiKey = apiKey, baseUrl = baseUrl)
+                              val apiResult = client.search(bmp)
+                              val json = try {
+                                  JSONArray().apply {
+                                      apiResult.getOrNull()?.forEach { put(it.toJson()) }
+                                  }.toString()
+                              } catch (e: Exception) { "[]" }
+                              
+                              val count = apiResult.getOrNull()?.size ?: 0
+                              val err = apiResult.exceptionOrNull()?.message
+                              val rec = SearchRecord(
+                                  photoPath = localPath,
+                                  resultsJson = json,
+                                  resultCount = count,
+                                  error = err
+                              )
+                              val id = withContext(Dispatchers.IO) {
+                                  try { dao.insert(rec) } catch (e: Exception) { 0L }
+                              }
+                              withContext(Dispatchers.Main) {
+                                  busy = false
+                                  status = ""
+                                  if (id > 0) onComplete(id)
+                                  else errorMessage = "שגיאה בשמירת הנתונים"
+                              }
+                          } catch (e: Exception) {
+                              busy = false
+                              errorMessage = "שגיאה: ${e.message}"
+                          }
                       }
                   }
               }
@@ -776,16 +714,13 @@ jobs:
                       verticalArrangement = Arrangement.Center,
                       horizontalAlignment = Alignment.CenterHorizontally
                   ) {
-                      Text("מוכן לחיפוש פנים", color = NeoCyan, style = MaterialTheme.typography.headlineMedium)
-                      Spacer(Modifier.height(16.dp))
-                      Text(
-                          "לחץ על הכפתור למטה, בחר 'מצלמה' או 'גלריה', וחתוך את הפנים",
-                          color = Color.Gray, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center
-                      )
-                      Spacer(Modifier.height(32.dp))
+                      Text("NeoFace", color = NeoCyan, style = MaterialTheme.typography.headlineLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                      Spacer(Modifier.height(8.dp))
+                      Text("חיפוש פנים הפוך", color = Color.Gray, style = MaterialTheme.typography.bodyLarge)
+                      Spacer(Modifier.height(48.dp))
 
                       if (apiKey.isBlank()) {
-                          Text("⚠️ חסר מפתח API. עבור להגדרות והזן מפתח.", color = NeoRed, style = MaterialTheme.typography.bodyMedium)
+                          Text("⚠️ חסר מפתח API. עבור להגדרות.", color = NeoRed, style = MaterialTheme.typography.bodyMedium)
                           Spacer(Modifier.height(16.dp))
                       }
 
@@ -794,28 +729,27 @@ jobs:
                               if (apiKey.isBlank()) return@FloatingActionButton
                               getContentLauncher.launch("image/*")
                           },
-                          modifier = Modifier.size(100.dp),
+                          modifier = Modifier.size(120.dp),
                           shape = CircleShape,
                           containerColor = NeoCyan
                       ) {
-                          Icon(Icons.Default.CameraAlt, "בחר תמונה", tint = NeoBg, modifier = Modifier.size(48.dp))
+                          Icon(Icons.Default.CameraAlt, "בחר תמונה", tint = NeoBg, modifier = Modifier.size(56.dp))
                       }
-                      Spacer(Modifier.height(16.dp))
-                      Text("בחר תמונה", color = NeoCyan)
+                      Spacer(Modifier.height(24.dp))
+                      Text("בחר תמונה מהגלריה או מהמצלמה", color = NeoCyan, style = MaterialTheme.typography.bodyLarge)
                   }
 
                   if (busy) {
-                      Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f))) {
+                      Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.8f))) {
                           Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                               CircularProgressIndicator(color = NeoCyan)
                               Spacer(Modifier.height(16.dp))
-                              Text(status, color = NeoCyan)
+                              Text(status, color = NeoCyan, style = MaterialTheme.typography.titleMedium)
                           }
                       }
                   }
               }
 
-              // דיאלוג להצגת שגיאות במידה וקיימות
               if (errorMessage != null) {
                   AlertDialog(
                       onDismissRequest = { errorMessage = null },
@@ -1318,7 +1252,7 @@ jobs:
             5. התחל לחפש
 
             ### קבלת מפתח חינמי
-            הירשם ב-https://www.faceseek.online (יש מכסה יומית חינמית).
+            הירשם ב-https://www.faceseek.online.
           files: app/build/outputs/apk/debug/app-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
