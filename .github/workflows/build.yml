@@ -433,12 +433,10 @@ jobs:
                           .build()
 
                       http.newCall(req).execute().use { resp ->
-                          // הגנה קריטית: קריאת התשובה עלולה לקרוס בגלל זיכרון אם יש Base64
-                          val body = try {
-                              resp.body?.string() ?: ""
-                          } catch (e: OutOfMemoryError) {
-                              return@withContext Result.failure(Exception("התשובה מהשרת גדולה מדי (מכילה תמונות Base64). השרת החזיר יותר מדי נתונים."))
-                          }
+                          var body = resp.body?.string() ?: ""
+                          
+                          // תיקון קריטי: מחיקת תמונות ה-Base64 הענקיות לפני שהן נכנסות לזיכרון
+                          body = stripBase64Images(body)
                           
                           if (!resp.isSuccessful) {
                               return@withContext Result.failure(Exception("HTTP ${resp.code}: ${body.take(250)}"))
@@ -448,6 +446,13 @@ jobs:
                   } catch (e: Exception) {
                       Result.failure(e)
                   }
+              }
+
+              // פונקציה שמוחקת את ה-Base64 מה-JSON כדי למנוע קריסת זיכרון
+              private fun stripBase64Images(json: String): String {
+                  // Regex למציאת "image_url":"data:image/...;base64,...."
+                  val regex = Regex("\"image_url\"\\s*:\\s*\"data:image\\/[^\"]+\"")
+                  return regex.replace(json, "\"image_url\":\"stripped\"")
               }
 
               private fun parse(json: String): List<SocialProfile> {
