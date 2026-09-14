@@ -343,6 +343,11 @@ jobs:
 
       # -----------------------------------------
       # AndroidManifest.xml
+      #
+      # IMPORTANT: the <?xml ?> declaration must be
+      # the very first line in the file (no blank
+      # line before it), otherwise the resource
+      # merger fails with a SAXParseException.
       # -----------------------------------------
 
       - name: Create AndroidManifest.xml
@@ -350,7 +355,6 @@ jobs:
         run: |
 
           cat > app/src/main/AndroidManifest.xml << 'EOF'
-
           <?xml version="1.0" encoding="utf-8"?>
 
           <manifest
@@ -473,7 +477,6 @@ jobs:
         run: |
 
           cat > app/src/main/res/values/themes.xml << 'EOF'
-
           <?xml version="1.0" encoding="utf-8"?>
 
           <resources>
@@ -511,7 +514,6 @@ jobs:
         run: |
 
           cat > app/src/main/res/values/strings.xml << 'EOF'
-
           <?xml version="1.0" encoding="utf-8"?>
 
           <resources>
@@ -534,7 +536,6 @@ jobs:
         run: |
 
           cat > app/src/main/res/drawable/ic_neo_logo.xml << 'EOF'
-
           <?xml version="1.0" encoding="utf-8"?>
 
           <vector
@@ -726,6 +727,7 @@ jobs:
             - Explicitly installed Build Tools 34.0.0
             - Added safer APK verification
             - Improved build logging
+            - Fixed XML declaration placement in generated resource files
 
           files:
             app/build/outputs/apk/debug/app-debug.apk
