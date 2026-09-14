@@ -126,9 +126,20 @@ jobs:
               xmlns:tools="http://schemas.android.com/tools">
               <uses-permission android:name="android.permission.CAMERA" />
               <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
               <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
-              <uses-feature android:name="android.hardware.camera" android:required="true" />
+              <uses-feature android:name="android.hardware.camera" android:required="false" />
+              
+              <queries>
+                  <intent>
+                      <action android:name="android.media.action.IMAGE_CAPTURE" />
+                  </intent>
+                  <intent>
+                      <action android:name="android.intent.action.GET_CONTENT" />
+                      <category android:name="android.intent.category.OPENABLE" />
+                      <data android:mimeType="image/*" />
+                  </intent>
+              </queries>
+
               <application
                   android:label="NeoFace"
                   android:icon="@drawable/ic_neo_logo"
@@ -138,6 +149,7 @@ jobs:
                   android:usesCleartextTraffic="true"
                   android:supportsRtl="true"
                   android:extractNativeLibs="true"
+                  android:requestLegacyExternalStorage="true"
                   tools:targetApi="33">
                   
                   <provider
@@ -167,7 +179,6 @@ jobs:
           cat > app/src/main/res/xml/file_paths.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <paths xmlns:android="http://schemas.android.com/apk/res/android">
-              <cache-path name="images" path="images/" />
               <cache-path name="cropped" path="cropped/" />
           </paths>
           EOF
@@ -195,13 +206,25 @@ jobs:
           <vector xmlns:android="http://schemas.android.com/apk/res/android"
               android:width="108dp" android:height="108dp"
               android:viewportWidth="108" android:viewportHeight="108">
+              <!-- רקע כהה -->
               <path android:fillColor="#0A0E27" android:pathData="M0,0h108v108h-108z"/>
-              <path android:strokeColor="#7C4DFF" android:strokeWidth="2" android:fillColor="#00000000"
-                  android:pathData="M54,24 A30,30 0 1,1 53.99,24 Z"/>
-              <path android:strokeColor="#00E5FF" android:strokeWidth="2" android:fillColor="#00000000"
-                  android:pathData="M54,34 A20,20 0 1,1 53.99,34 Z"/>
-              <path android:fillColor="#7C4DFF"
-                  android:pathData="M40,68 L40,40 L48,40 L60,60 L60,40 L68,40 L68,68 L60,68 L48,48 L48,68 Z"/>
+              <!-- טבעת חיצונית (סורק) -->
+              <path android:strokeColor="#7C4DFF" android:strokeWidth="3" android:fillColor="#00000000"
+                  android:pathData="M54,14 A40,40 0 1,1 53.99,14 Z"/>
+              <!-- קו סריקה אופקי -->
+              <path android:strokeColor="#3300E5FF" android:strokeWidth="6" android:strokeLineCap="round" android:fillColor="#00000000"
+                  android:pathData="M18,54 L90,54"/>
+              <!-- אות N וקווי הפנים -->
+              <path android:strokeColor="#00E5FF" android:strokeWidth="6" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000"
+                  android:pathData="M36,76 L36,32 L72,76 L72,32"/>
+              <!-- עיניים חכמות -->
+              <path android:fillColor="#00E5FF"
+                  android:pathData="M46,46 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0"/>
+              <path android:fillColor="#00E5FF"
+                  android:pathData="M62,46 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0"/>
+              <!-- חיוך עדין ושנון -->
+              <path android:strokeColor="#00E5FF" android:strokeWidth="3" android:strokeLineCap="round" android:fillColor="#00000000"
+                  android:pathData="M46,62 Q54,68 62,62"/>
           </vector>
           EOF
 
@@ -327,12 +350,6 @@ jobs:
               val file = File(dir, "face_${System.currentTimeMillis()}.jpg")
               file.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
               return file.absolutePath
-          }
-
-          fun rotateBitmap(bmp: Bitmap, degrees: Float): Bitmap {
-              if (degrees == 0f) return bmp
-              val m = Matrix().apply { postRotate(degrees) }
-              return Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
           }
           EOF
 
@@ -647,7 +664,6 @@ jobs:
               val scope = rememberCoroutineScope()
               var busy by remember { mutableStateOf(false) }
               var status by remember { mutableStateOf("") }
-              var currentPhotoUri by remember { mutableStateOf<Uri?>(null) }
 
               val apiKey = Settings.getApiKey(ctx)
               val baseUrl = Settings.getBaseUrl(ctx)
@@ -704,11 +720,11 @@ jobs:
                   }
               }
 
-              val cameraLauncher = rememberLauncherForActivityResult(
-                  contract = ActivityResultContracts.TakePicture()
-              ) { success ->
-                  if (success) {
-                      val uri = currentPhotoUri ?: return@rememberLauncherForActivityResult
+              // GetContent is the safest way to get an image on Android 11-16
+              val getContentLauncher = rememberLauncherForActivityResult(
+                  contract = ActivityResultContracts.GetContent()
+              ) { uri ->
+                  if (uri != null) {
                       val cropDir = File(ctx.cacheDir, "cropped").apply { mkdirs() }
                       val destinationFile = File(cropDir, "cropped_${System.currentTimeMillis()}.jpg")
                       val destinationUri = FileProvider.getUriForFile(
@@ -733,7 +749,7 @@ jobs:
                       Text("מוכן לחיפוש פנים", color = NeoCyan, style = MaterialTheme.typography.headlineMedium)
                       Spacer(Modifier.height(16.dp))
                       Text(
-                          "לחץ על הכפתור למטה כדי לפתוח את המצלמה ולחתוך את הפנים",
+                          "לחץ על הכפתור למטה, בחר 'מצלמה' או 'גלריה', וחתוך את הפנים",
                           color = Color.Gray, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center
                       )
                       Spacer(Modifier.height(32.dp))
@@ -746,20 +762,17 @@ jobs:
                       FloatingActionButton(
                           onClick = {
                               if (apiKey.isBlank()) return@FloatingActionButton
-                              val imagesDir = File(ctx.cacheDir, "images").apply { mkdirs() }
-                              val file = File(imagesDir, "capture_${System.currentTimeMillis()}.jpg")
-                              val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
-                              currentPhotoUri = uri
-                              cameraLauncher.launch(uri)
+                              // Use GetContent to bypass FileProvider crashes on Android 16
+                              getContentLauncher.launch("image/*")
                           },
                           modifier = Modifier.size(100.dp),
                           shape = CircleShape,
                           containerColor = NeoCyan
                       ) {
-                          Icon(Icons.Default.CameraAlt, "צלם", tint = NeoBg, modifier = Modifier.size(48.dp))
+                          Icon(Icons.Default.CameraAlt, "בחר תמונה", tint = NeoBg, modifier = Modifier.size(48.dp))
                       }
                       Spacer(Modifier.height(16.dp))
-                      Text("פתח מצלמה", color = NeoCyan)
+                      Text("בחר תמונה", color = NeoCyan)
                   }
 
                   if (busy) {
@@ -1262,7 +1275,7 @@ jobs:
           body: |
             ## NeoFace v1.0.${{ github.run_number }}
 
-            אפליקציית חיפוש פנים הפוך עם חיתוך חכם.
+            אפליקציית חיפוש פנים הפוך עם לוגו חדש ומקצועי.
 
             ### התקנה
             1. הורד את `app-debug.apk` למטה
