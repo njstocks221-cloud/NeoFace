@@ -126,6 +126,7 @@ jobs:
               xmlns:tools="http://schemas.android.com/tools">
               <uses-permission android:name="android.permission.CAMERA" />
               <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
               <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
               <uses-feature android:name="android.hardware.camera" android:required="false" />
               
@@ -206,23 +207,17 @@ jobs:
           <vector xmlns:android="http://schemas.android.com/apk/res/android"
               android:width="108dp" android:height="108dp"
               android:viewportWidth="108" android:viewportHeight="108">
-              <!-- רקע כהה -->
               <path android:fillColor="#0A0E27" android:pathData="M0,0h108v108h-108z"/>
-              <!-- טבעת חיצונית (סורק) -->
               <path android:strokeColor="#7C4DFF" android:strokeWidth="3" android:fillColor="#00000000"
                   android:pathData="M54,14 A40,40 0 1,1 53.99,14 Z"/>
-              <!-- קו סריקה אופקי -->
               <path android:strokeColor="#3300E5FF" android:strokeWidth="6" android:strokeLineCap="round" android:fillColor="#00000000"
                   android:pathData="M18,54 L90,54"/>
-              <!-- אות N וקווי הפנים -->
               <path android:strokeColor="#00E5FF" android:strokeWidth="6" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000"
                   android:pathData="M36,76 L36,32 L72,76 L72,32"/>
-              <!-- עיניים חכמות -->
               <path android:fillColor="#00E5FF"
                   android:pathData="M46,46 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0"/>
               <path android:fillColor="#00E5FF"
                   android:pathData="M62,46 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0"/>
-              <!-- חיוך עדין ושנון -->
               <path android:strokeColor="#00E5FF" android:strokeWidth="3" android:strokeLineCap="round" android:fillColor="#00000000"
                   android:pathData="M46,62 Q54,68 62,62"/>
           </vector>
@@ -343,6 +338,7 @@ jobs:
 
           import android.content.Context
           import android.graphics.*
+          import android.net.Uri
           import java.io.File
 
           fun savePhoto(ctx: Context, bmp: Bitmap): String {
@@ -350,6 +346,32 @@ jobs:
               val file = File(dir, "face_${System.currentTimeMillis()}.jpg")
               file.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
               return file.absolutePath
+          }
+
+          // פונקציה חדשה ובטוחה לטעינת תמונות URI מבלי לקרוס את הזיכרון
+          fun decodeUri(ctx: Context, uri: Uri, maxDim: Int = 1024): Bitmap? {
+              return try {
+                  val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                  ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+                  
+                  var inSampleSize = 1
+                  val (width, height) = options.outWidth to options.outHeight
+                  if (width > maxDim || height > maxDim) {
+                      val halfHeight = height / 2
+                      val halfWidth = width / 2
+                      while ((halfHeight / inSampleSize) >= maxDim && (halfWidth / inSampleSize) >= maxDim) {
+                          inSampleSize *= 2
+                      }
+                  }
+                  options.inJustDecodeBounds = false
+                  options.inSampleSize = inSampleSize
+                  
+                  ctx.contentResolver.openInputStream(uri)?.use { 
+                      BitmapFactory.decodeStream(it, null, options) 
+                  }
+              } catch (e: Exception) {
+                  null
+              }
           }
           EOF
 
@@ -627,7 +649,6 @@ jobs:
           package com.neoface.ui
 
           import android.graphics.Bitmap
-          import android.graphics.BitmapFactory
           import android.net.Uri
           import androidx.activity.compose.rememberLauncherForActivityResult
           import androidx.activity.result.contract.ActivityResultContracts
@@ -649,6 +670,7 @@ jobs:
           import com.neoface.data.SearchRecord
           import com.neoface.data.SearchDao
           import com.neoface.engine.SocialSearchClient
+          import com.neoface.engine.decodeUri
           import com.neoface.engine.savePhoto
           import com.neoface.engine.toJson
           import com.yalantis.ucrop.UCrop
@@ -664,6 +686,7 @@ jobs:
               val scope = rememberCoroutineScope()
               var busy by remember { mutableStateOf(false) }
               var status by remember { mutableStateOf("") }
+              var errorMessage by remember { mutableStateOf<String?>(null) }
 
               val apiKey = Settings.getApiKey(ctx)
               val baseUrl = Settings.getBaseUrl(ctx)
@@ -678,11 +701,14 @@ jobs:
                           status = "שולח לחיפוש..."
                           scope.launch {
                               try {
-                                  val inputStream = ctx.contentResolver.openInputStream(croppedUri)
-                                  val bmp0 = BitmapFactory.decodeStream(inputStream)
-                                  inputStream?.close()
+                                  // שימוש בפונקציה החדשה והבטוחה שמונעת קריסת זיכרון
+                                  val bmp = decodeUri(ctx, croppedUri, 1024)
+                                  if (bmp == null) {
+                                      errorMessage = "לא ניתן לקרוא את התמונה. נסה שוב."
+                                      busy = false
+                                      return@launch
+                                  }
                                   
-                                  val bmp = normalize(bmp0)
                                   val localPath = savePhoto(ctx, bmp)
                                   val client = SocialSearchClient(apiKey = apiKey, baseUrl = baseUrl)
                                   val apiResult = client.search(bmp)
@@ -707,36 +733,40 @@ jobs:
                                       busy = false
                                       status = ""
                                       if (id > 0) onComplete(id)
+                                      else errorMessage = "שגיאה בשמירת הנתונים במסד הנתונים"
                                   }
                               } catch (e: Exception) {
                                   busy = false
-                                  status = "שגיאה בעיבוד התמונה: ${e.message}"
+                                  errorMessage = "שגיאה בעיבוד התמונה: ${e.message}"
                               }
                           }
                       }
                   } else if (result.resultCode == UCrop.RESULT_ERROR) {
                       val cropError = UCrop.getError(result.data!!)
-                      status = "שגיאה בחיתוך: ${cropError?.message}"
+                      errorMessage = "שגיאה בחיתוך: ${cropError?.message}"
                   }
               }
 
-              // GetContent is the safest way to get an image on Android 11-16
               val getContentLauncher = rememberLauncherForActivityResult(
                   contract = ActivityResultContracts.GetContent()
               ) { uri ->
                   if (uri != null) {
-                      val cropDir = File(ctx.cacheDir, "cropped").apply { mkdirs() }
-                      val destinationFile = File(cropDir, "cropped_${System.currentTimeMillis()}.jpg")
-                      val destinationUri = FileProvider.getUriForFile(
-                          ctx,
-                          "${ctx.packageName}.fileprovider",
-                          destinationFile
-                      )
-                      val uCropIntent = UCrop.of(uri, destinationUri)
-                          .withAspectRatio(1f, 1f)
-                          .withMaxResultSize(1024, 1024)
-                          .getIntent(ctx)
-                      uCropLauncher.launch(uCropIntent)
+                      try {
+                          val cropDir = File(ctx.cacheDir, "cropped").apply { mkdirs() }
+                          val destinationFile = File(cropDir, "cropped_${System.currentTimeMillis()}.jpg")
+                          val destinationUri = FileProvider.getUriForFile(
+                              ctx,
+                              "${ctx.packageName}.fileprovider",
+                              destinationFile
+                          )
+                          val uCropIntent = UCrop.of(uri, destinationUri)
+                              .withAspectRatio(1f, 1f)
+                              .withMaxResultSize(1024, 1024)
+                              .getIntent(ctx)
+                          uCropLauncher.launch(uCropIntent)
+                      } catch (e: Exception) {
+                          errorMessage = "שגיאה בפתיחת מסך החיתוך: ${e.message}"
+                      }
                   }
               }
 
@@ -762,7 +792,6 @@ jobs:
                       FloatingActionButton(
                           onClick = {
                               if (apiKey.isBlank()) return@FloatingActionButton
-                              // Use GetContent to bypass FileProvider crashes on Android 16
                               getContentLauncher.launch("image/*")
                           },
                           modifier = Modifier.size(100.dp),
@@ -785,17 +814,21 @@ jobs:
                       }
                   }
               }
-          }
 
-          private fun normalize(src: Bitmap?): Bitmap {
-              if (src == null) return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-              val maxDim = 1024
-              if (src.width > src.height) {
-                  if (src.width <= maxDim) return src
-                  return Bitmap.createScaledBitmap(src, maxDim, src.height * maxDim / src.width, true)
+              // דיאלוג להצגת שגיאות במידה וקיימות
+              if (errorMessage != null) {
+                  AlertDialog(
+                      onDismissRequest = { errorMessage = null },
+                      title = { Text("שגיאה", color = NeoRed) },
+                      text = { Text(errorMessage!!, color = Color.White) },
+                      confirmButton = {
+                          TextButton(onClick = { errorMessage = null }) {
+                              Text("אישור", color = NeoCyan)
+                          }
+                      },
+                      containerColor = NeoSurface
+                  )
               }
-              if (src.height <= maxDim) return src
-              return Bitmap.createScaledBitmap(src, src.width * maxDim / src.height, maxDim, true)
           }
           EOF
 
@@ -1275,7 +1308,7 @@ jobs:
           body: |
             ## NeoFace v1.0.${{ github.run_number }}
 
-            אפליקציית חיפוש פנים הפוך עם לוגו חדש ומקצועי.
+            אפליקציית חיפוש פנים הפוך.
 
             ### התקנה
             1. הורד את `app-debug.apk` למטה
