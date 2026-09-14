@@ -84,7 +84,7 @@ jobs:
               defaultConfig {
                   applicationId "com.neoface"
                   minSdk 24
-                  targetSdk 34
+                  targetSdk 33 // הורדנו מ-34 ל-33 כדי למנוע בעיות תאימות באנדרואיד 16
                   versionCode 1
                   versionName "1.0.0"
               }
@@ -95,6 +95,9 @@ jobs:
                   targetCompatibility JavaVersion.VERSION_17
               }
               kotlinOptions { jvmTarget = '17' }
+              packagingOptions {
+                  resources.excludes.add("META-INF/*")
+              }
           }
           dependencies {
               def camerax = "1.3.1"
@@ -120,9 +123,11 @@ jobs:
 
           cat > app/src/main/AndroidManifest.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:tools="http://schemas.android.com/tools">
               <uses-permission android:name="android.permission.CAMERA" />
               <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
               <uses-feature android:name="android.hardware.camera" android:required="true" />
               <application
                   android:label="NeoFace"
@@ -131,11 +136,14 @@ jobs:
                   android:theme="@style/Theme.NeoFace"
                   android:allowBackup="true"
                   android:usesCleartextTraffic="true"
-                  android:supportsRtl="true">
+                  android:supportsRtl="true"
+                  android:extractNativeLibs="true"
+                  tools:targetApi="33">
                   <activity
                       android:name=".MainActivity"
                       android:exported="true"
-                      android:theme="@style/Theme.NeoFace">
+                      android:theme="@style/Theme.NeoFace"
+                      android:screenOrientation="portrait">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
@@ -1225,11 +1233,1273 @@ jobs:
           }
           EOF
 
-      - name: Setup Gradle wrapper
-        run: gradle wrapper --gradle-version 8.4
+      - name: Build Debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeoFace-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: NeoFace v1.0.${{ github.run_number }}
+          body: |
+            ## NeoFace v1.0.${{ github.run_number }}
+
+            אפליקציית חיפוש פנים הפוך.
+
+            ### התקנה
+            1. הורד את `app-debug.apk` למטה
+            2. אפשר "התקנה ממקורות לא ידועים" בהגדרות המכשיר
+            3. התקן ופתח
+            4. היכנס להגדרות → הזן מפתח FaceSeek API חינמי
+            5. התחל לחפש
+
+            ### קבלת מפתח חינמי
+            הירשם ב-https://www.faceseek.online (יש מכסה יומית חינמית).
+          files: app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}name: Build NeoFace APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build project files
+        run: |
+          mkdir -p app/src/main/java/com/neoface/data
+          mkdir -p app/src/main/java/com/neoface/engine
+          mkdir -p app/src/main/java/com/neoface/ui
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
+
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+
+          cat > settings.gradle << 'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "NeoFace"
+          include ':app'
+          EOF
+
+          cat > build.gradle << 'EOF'
+          plugins {
+              id 'com.android.application' version '8.2.0' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.20' apply false
+              id 'org.jetbrains.kotlin.kapt' version '1.9.20' apply false
+          }
+          EOF
+
+          cat > gradle.properties << 'EOF'
+          org.gradle.jvmargs=-Xmx2048m
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat > app/build.gradle << 'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+              id 'org.jetbrains.kotlin.kapt'
+          }
+          android {
+              namespace 'com.neoface'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.neoface"
+                  minSdk 24
+                  targetSdk 33 // הורדנו מ-34 ל-33 כדי למנוע בעיות תאימות באנדרואיד 16
+                  versionCode 1
+                  versionName "1.0.0"
+              }
+              buildFeatures { compose true; buildConfig true }
+              composeOptions { kotlinCompilerExtensionVersion '1.5.4' }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = '17' }
+              packagingOptions {
+                  resources.excludes.add("META-INF/*")
+              }
+          }
+          dependencies {
+              def camerax = "1.3.1"
+              implementation "androidx.camera:camera-core:$camerax"
+              implementation "androidx.camera:camera-camera2:$camerax"
+              implementation "androidx.camera:camera-lifecycle:$camerax"
+              implementation "androidx.camera:camera-view:$camerax"
+              implementation "androidx.room:room-runtime:2.6.1"
+              implementation "androidx.room:room-ktx:2.6.1"
+              kapt "androidx.room:room-compiler:2.6.1"
+              implementation "androidx.navigation:navigation-compose:2.7.7"
+              implementation platform('androidx.compose:compose-bom:2024.02.00')
+              implementation 'androidx.compose.ui:ui'
+              implementation 'androidx.compose.material3:material3'
+              implementation 'androidx.compose.material:material-icons-extended'
+              implementation 'androidx.activity:activity-compose:1.8.2'
+              implementation 'com.google.accompanist:accompanist-permissions:0.32.0'
+              implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+              implementation 'io.coil-kt:coil-compose:2.5.0'
+              implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:tools="http://schemas.android.com/tools">
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
+              <uses-feature android:name="android.hardware.camera" android:required="true" />
+              <application
+                  android:label="NeoFace"
+                  android:icon="@drawable/ic_neo_logo"
+                  android:roundIcon="@drawable/ic_neo_logo"
+                  android:theme="@style/Theme.NeoFace"
+                  android:allowBackup="true"
+                  android:usesCleartextTraffic="true"
+                  android:supportsRtl="true"
+                  android:extractNativeLibs="true"
+                  tools:targetApi="33">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:theme="@style/Theme.NeoFace"
+                      android:screenOrientation="portrait">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/themes.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.NeoFace" parent="android:Theme.Material.NoActionBar">
+                  <item name="android:statusBarColor">#0A0E27</item>
+                  <item name="android:navigationBarColor">#0A0E27</item>
+                  <item name="android:windowBackground">#0A0E27</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/strings.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">NeoFace</string>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_neo_logo.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp" android:height="108dp"
+              android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#0A0E27" android:pathData="M0,0h108v108h-108z"/>
+              <path android:strokeColor="#7C4DFF" android:strokeWidth="2" android:fillColor="#00000000"
+                  android:pathData="M54,24 A30,30 0 1,1 53.99,24 Z"/>
+              <path android:strokeColor="#00E5FF" android:strokeWidth="2" android:fillColor="#00000000"
+                  android:pathData="M54,34 A20,20 0 1,1 53.99,34 Z"/>
+              <path android:fillColor="#7C4DFF"
+                  android:pathData="M40,68 L40,40 L48,40 L60,60 L60,40 L68,40 L68,68 L60,68 L48,48 L48,68 Z"/>
+          </vector>
+          EOF
+
+          cat > app/src/main/java/com/neoface/NeoTheme.kt << 'EOF'
+          package com.neoface
+
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.graphics.Color
+
+          val NeoPurple = Color(0xFF7C4DFF)
+          val NeoCyan = Color(0xFF00E5FF)
+          val NeoBg = Color(0xFF0A0E27)
+          val NeoSurface = Color(0xFF151A35)
+          val NeoGreen = Color(0xFF00E676)
+          val NeoRed = Color(0xFFFF5252)
+
+          private val NeoColorScheme = darkColorScheme(
+              primary = NeoPurple, onPrimary = Color.White,
+              secondary = NeoCyan, onSecondary = NeoBg,
+              background = NeoBg, onBackground = Color.White,
+              surface = NeoSurface, onSurface = Color.White,
+              error = NeoRed
+          )
+
+          @Composable
+          fun NeoFaceTheme(content: @Composable () -> Unit) {
+              MaterialTheme(colorScheme = NeoColorScheme, content = content)
+          }
+          EOF
+
+          cat > app/src/main/java/com/neoface/Settings.kt << 'EOF'
+          package com.neoface
+
+          import android.content.Context
+
+          object Settings {
+              private const val PREFS = "neoface_prefs"
+              private const val KEY_API = "api_key"
+              private const val KEY_URL = "base_url"
+
+              const val DEFAULT_URL = "https://faceseek.online/api/v1"
+
+              fun getApiKey(ctx: Context): String =
+                  ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_API, "") ?: ""
+
+              fun setApiKey(ctx: Context, key: String) =
+                  ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_API, key.trim()).apply()
+
+              fun getBaseUrl(ctx: Context): String =
+                  ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL
+
+              fun setBaseUrl(ctx: Context, url: String) =
+                  ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_URL, url.trim()).apply()
+          }
+          EOF
+
+          cat > app/src/main/java/com/neoface/data/SearchRecord.kt << 'EOF'
+          package com.neoface.data
+
+          import androidx.room.Entity
+          import androidx.room.PrimaryKey
+
+          @Entity(tableName = "searches")
+          data class SearchRecord(
+              @PrimaryKey(autoGenerate = true) val id: Long = 0,
+              val photoPath: String,
+              val timestamp: Long = System.currentTimeMillis(),
+              val resultsJson: String,
+              val resultCount: Int = 0,
+              val error: String? = null
+          )
+          EOF
+
+          cat > app/src/main/java/com/neoface/data/SearchDao.kt << 'EOF'
+          package com.neoface.data
+
+          import androidx.room.*
+          import kotlinx.coroutines.flow.Flow
+
+          @Dao
+          interface SearchDao {
+              @Insert suspend fun insert(s: SearchRecord): Long
+              @Query("SELECT * FROM searches ORDER BY timestamp DESC") fun all(): Flow<List<SearchRecord>>
+              @Query("SELECT * FROM searches WHERE id = :id") suspend fun get(id: Long): SearchRecord?
+              @Query("SELECT * FROM searches WHERE id = :id") fun observe(id: Long): Flow<SearchRecord?>
+              @Delete suspend fun delete(s: SearchRecord)
+              @Query("DELETE FROM searches") suspend fun clear()
+          }
+          EOF
+
+          cat > app/src/main/java/com/neoface/data/AppDatabase.kt << 'EOF'
+          package com.neoface.data
+
+          import android.content.Context
+          import androidx.room.Database
+          import androidx.room.Room
+          import androidx.room.RoomDatabase
+
+          @Database(entities = [SearchRecord::class], version = 1, exportSchema = false)
+          abstract class AppDatabase : RoomDatabase() {
+              abstract fun dao(): SearchDao
+              companion object {
+                  @Volatile private var instance: AppDatabase? = null
+                  fun get(ctx: Context): AppDatabase = instance ?: synchronized(this) {
+                      instance ?: Room.databaseBuilder(
+                          ctx.applicationContext, AppDatabase::class.java, "neoface.db"
+                      ).build().also { instance = it }
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/neoface/engine/ImageUtils.kt << 'EOF'
+          package com.neoface.engine
+
+          import android.content.Context
+          import android.graphics.*
+          import java.io.File
+
+          fun savePhoto(ctx: Context, bmp: Bitmap): String {
+              val dir = File(ctx.filesDir, "photos").apply { mkdirs() }
+              val file = File(dir, "face_${System.currentTimeMillis()}.jpg")
+              file.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+              return file.absolutePath
+          }
+
+          fun rotateBitmap(bmp: Bitmap, degrees: Float): Bitmap {
+              if (degrees == 0f) return bmp
+              val m = Matrix().apply { postRotate(degrees) }
+              return Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+          }
+          EOF
+
+          cat > app/src/main/java/com/neoface/engine/SocialSearchClient.kt << 'EOF'
+          package com.neoface.engine
+
+          import android.graphics.Bitmap
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.withContext
+          import okhttp3.*
+          import okhttp3.MediaType.Companion.toMediaType
+          import okhttp3.RequestBody.Companion.toRequestBody
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.io.ByteArrayOutputStream
+          import java.util.concurrent.TimeUnit
+
+          data class SocialProfile(
+              val url: String,
+              val score: Float,
+              val thumbnailUrl: String? = null,
+              val platform: String = "",
+              val title: String = ""
+          )
+
+          class SocialSearchClient(
+              private val apiKey: String,
+              private val baseUrl: String
+          ) {
+              private val http = OkHttpClient.Builder()
+                  .connectTimeout(30, TimeUnit.SECONDS)
+                  .readTimeout(90, TimeUnit.SECONDS)
+                  .writeTimeout(90, TimeUnit.SECONDS)
+                  .build()
+
+              suspend fun search(bitmap: Bitmap): Result<List<SocialProfile>> = withContext(Dispatchers.IO) {
+                  try {
+                      if (apiKey.isBlank()) return@withContext Result.failure(Exception("חסר מפתח API — הזן בהגדרות"))
+                      val jpeg = ByteArrayOutputStream().use { out ->
+                          bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                          out.toByteArray()
+                      }
+                      val imgBody = jpeg.toRequestBody("image/jpeg".toMediaType())
+                      val multipart = MultipartBody.Builder()
+                          .setType(MultipartBody.FORM)
+                          .addFormDataPart("image", "face.jpg", imgBody)
+                          .build()
+
+                      val url = baseUrl.trimEnd('/') + "/search"
+                      val req = Request.Builder()
+                          .url(url)
+                          .header("Authorization", "Bearer $apiKey")
+                          .header("X-API-Key", apiKey)
+                          .header("Accept", "application/json")
+                          .post(multipart)
+                          .build()
+
+                      http.newCall(req).execute().use { resp ->
+                          val body = resp.body?.string() ?: ""
+                          if (!resp.isSuccessful) {
+                              return@withContext Result.failure(Exception("HTTP ${resp.code}: ${body.take(250)}"))
+                          }
+                          Result.success(parse(body))
+                      }
+                  } catch (e: Exception) {
+                      Result.failure(e)
+                  }
+              }
+
+              private fun parse(json: String): List<SocialProfile> {
+                  val list = mutableListOf<SocialProfile>()
+                  try {
+                      val t = json.trim()
+                      val arr: JSONArray = when {
+                          t.startsWith("[") -> JSONArray(t)
+                          t.startsWith("{") -> {
+                              val o = JSONObject(t)
+                              o.optJSONArray("results")
+                                  ?: o.optJSONArray("matches")
+                                  ?: o.optJSONArray("data")
+                                  ?: o.optJSONArray("items")
+                                  ?: JSONArray()
+                          }
+                          else -> JSONArray()
+                      }
+                      for (i in 0 until arr.length()) {
+                          val o = arr.getJSONObject(i)
+                          val u = o.optString("url",
+                              o.optString("source_url",
+                                  o.optString("link", o.optString("profile_url", ""))))
+                          if (u.isBlank()) continue
+                          val s = o.optDouble("score",
+                              o.optDouble("similarity",
+                                  o.optDouble("confidence", 0.0))).toFloat()
+                          val thumb = o.optString("thumbnail",
+                              o.optString("thumbnail_url",
+                                  o.optString("image", null)))
+                          val title = o.optString("title", o.optString("name", ""))
+                          list.add(SocialProfile(u, s, thumb, detect(u), title))
+                      }
+                  } catch (_: Exception) {}
+                  return list.sortedByDescending { it.score }
+              }
+
+              private fun detect(url: String): String = when {
+                  url.contains("instagram.com") -> "Instagram"
+                  url.contains("tiktok.com") -> "TikTok"
+                  url.contains("facebook.com") || url.contains("fb.com") -> "Facebook"
+                  url.contains("twitter.com") || url.contains("x.com") -> "X"
+                  url.contains("linkedin.com") -> "LinkedIn"
+                  url.contains("youtube.com") -> "YouTube"
+                  url.contains("vk.com") -> "VK"
+                  url.contains("ok.ru") -> "OK"
+                  url.contains("pinterest.com") -> "Pinterest"
+                  url.contains("t.me") || url.contains("telegram") -> "Telegram"
+                  url.contains("reddit.com") -> "Reddit"
+                  else -> "Web"
+              }
+          }
+
+          fun SocialProfile.toJson(): JSONObject = JSONObject().apply {
+              put("url", url); put("score", score)
+              put("thumbnailUrl", thumbnailUrl ?: JSONObject.NULL)
+              put("platform", platform); put("title", title)
+          }
+
+          fun parseProfiles(json: String): List<SocialProfile> {
+              val list = mutableListOf<SocialProfile>()
+              try {
+                  val arr = JSONArray(json)
+                  for (i in 0 until arr.length()) {
+                      val o = arr.getJSONObject(i)
+                      list.add(SocialProfile(
+                          url = o.getString("url"),
+                          score = o.optDouble("score", 0.0).toFloat(),
+                          thumbnailUrl = if (o.isNull("thumbnailUrl")) null else o.optString("thumbnailUrl"),
+                          platform = o.optString("platform", "Web"),
+                          title = o.optString("title", "")
+                      ))
+                  }
+              } catch (_: Exception) {}
+              return list
+          }
+          EOF
+
+          cat > app/src/main/java/com/neoface/MainActivity.kt << 'EOF'
+          package com.neoface
+
+          import android.Manifest
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.text.style.TextAlign
+          import androidx.compose.ui.unit.dp
+          import com.google.accompanist.permissions.*
+
+          class MainActivity : ComponentActivity() {
+              @OptIn(ExperimentalPermissionsApi::class)
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent {
+                      NeoFaceTheme {
+                          val perm = rememberPermissionState(Manifest.permission.CAMERA)
+                          LaunchedEffect(Unit) { if (!perm.status.isGranted) perm.launchPermissionRequest() }
+                          Box(Modifier.fillMaxSize().background(NeoBg)) {
+                              if (perm.status.isGranted) {
+                                  AppRoot()
+                              } else {
+                                  Column(
+                                      Modifier.fillMaxSize().padding(32.dp),
+                                      verticalArrangement = Arrangement.Center,
+                                      horizontalAlignment = Alignment.CenterHorizontally
+                                  ) {
+                                      Text("NeoFace זקוק להרשאת מצלמה", color = NeoCyan,
+                                          style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+                                      Spacer(Modifier.height(16.dp))
+                                      Button(onClick = { perm.launchPermissionRequest() }) {
+                                          Text("אשר הרשאה")
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/neoface/AppRoot.kt << 'EOF'
+          package com.neoface
+
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.vector.ImageVector
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.navigation.NavType
+          import androidx.navigation.compose.*
+          import androidx.navigation.navArgument
+          import com.neoface.data.AppDatabase
+          import com.neoface.ui.*
+
+          data class NavItem(val route: String, val label: String, val icon: ImageVector)
+
+          @Composable
+          fun AppRoot() {
+              val ctx = LocalContext.current
+              val db = remember { AppDatabase.get(ctx) }
+              val dao = db.dao()
+              val nav = rememberNavController()
+              val backStack by nav.currentBackStackEntryAsState()
+              val current = backStack?.destination?.route ?: "camera"
+
+              val items = listOf(
+                  NavItem("camera", "מצלמה", Icons.Default.CameraAlt),
+                  NavItem("history", "היסטוריה", Icons.Default.History),
+                  NavItem("settings", "הגדרות", Icons.Default.Settings)
+              )
+
+              Scaffold(
+                  bottomBar = {
+                      NavigationBar(containerColor = NeoSurface) {
+                          items.forEach { it ->
+                              val selected = current == it.route || current.startsWith("${it.route}/")
+                              NavigationBarItem(
+                                  selected = selected,
+                                  onClick = {
+                                      if (!selected) nav.navigate(it.route) {
+                                          popUpTo("camera") { inclusive = false }
+                                          launchSingleTop = true
+                                      }
+                                  },
+                                  icon = { Icon(it.icon, it.label) },
+                                  label = { Text(it.label) },
+                                  colors = NavigationBarItemDefaults.colors(
+                                      selectedIconColor = NeoCyan,
+                                      selectedTextColor = NeoCyan,
+                                      indicatorColor = NeoPurple
+                                  )
+                              )
+                          }
+                      }
+                  }
+              ) { pad ->
+                  NavHost(nav, "camera", Modifier.padding(pad)) {
+                      composable("camera") {
+                          CameraScreen(dao) { id -> nav.navigate("results/$id") }
+                      }
+                      composable(
+                          "results/{id}",
+                          arguments = listOf(navArgument("id") { type = NavType.LongType })
+                      ) { entry ->
+                          val id = entry.arguments?.getLong("id") ?: 0L
+                          ResultsScreen(dao, id) { nav.navigate("camera") }
+                      }
+                      composable("history") {
+                          HistoryScreen(dao) { id -> nav.navigate("results/$id") }
+                      }
+                      composable("settings") { SettingsScreen() }
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/neoface/ui/CameraScreen.kt << 'EOF'
+          package com.neoface.ui
+
+          import android.graphics.Bitmap
+          import android.graphics.BitmapFactory
+          import androidx.camera.core.*
+          import androidx.camera.lifecycle.ProcessCameraProvider
+          import androidx.camera.view.PreviewView
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.shape.CircleShape
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.CameraAlt
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.platform.LocalLifecycleOwner
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.viewinterop.AndroidView
+          import androidx.core.content.ContextCompat
+          import com.neoface.*
+          import com.neoface.data.SearchRecord
+          import com.neoface.data.SearchDao
+          import com.neoface.engine.SocialSearchClient
+          import com.neoface.engine.savePhoto
+          import com.neoface.engine.toJson
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.launch
+          import kotlinx.coroutines.withContext
+          import org.json.JSONArray
+          import java.io.File
+
+          @Composable
+          fun CameraScreen(dao: SearchDao, onComplete: (Long) -> Unit) {
+              val ctx = LocalContext.current
+              val lifecycle = LocalLifecycleOwner.current
+              val providerFuture = remember { ProcessCameraProvider.getInstance(ctx) }
+              val scope = rememberCoroutineScope()
+              var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+              var busy by remember { mutableStateOf(false) }
+              var status by remember { mutableStateOf("") }
+
+              val apiKey = Settings.getApiKey(ctx)
+              val baseUrl = Settings.getBaseUrl(ctx)
+
+              Box(Modifier.fillMaxSize().background(Color.Black)) {
+                  AndroidView(factory = { c ->
+                      PreviewView(c).apply {
+                          scaleType = PreviewView.ScaleType.FILL_CENTER
+                          providerFuture.addListener({
+                              try {
+                                  val provider = providerFuture.get()
+                                  val preview = Preview.Builder().build()
+                                      .also { it.setSurfaceProvider(surfaceProvider) }
+                                  val capture = ImageCapture.Builder()
+                                      .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                                      .build()
+                                  imageCapture = capture
+                                  provider.unbindAll()
+                                  provider.bindToLifecycle(
+                                      lifecycle, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture
+                                  )
+                              } catch (_: Exception) {}
+                          }, ContextCompat.getMainExecutor(c))
+                      }
+                  }, modifier = Modifier.fillMaxSize())
+
+                  Surface(
+                      Modifier.align(Alignment.TopCenter).padding(16.dp),
+                      color = NeoSurface.copy(alpha = 0.85f),
+                      shape = MaterialTheme.shapes.large
+                  ) {
+                      Text(
+                          "כוון את הפנים למרכז המסך וצלם",
+                          color = NeoCyan,
+                          style = MaterialTheme.typography.bodyMedium,
+                          modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                      )
+                  }
+
+                  if (apiKey.isBlank()) {
+                      Surface(
+                          Modifier.align(Alignment.Center).padding(24.dp),
+                          color = NeoRed.copy(alpha = 0.9f),
+                          shape = MaterialTheme.shapes.large
+                      ) {
+                          Text(
+                              "חסר מפתח API של FaceSeek.\nעבור להגדרות והזן מפתח חינמי.",
+                              color = Color.White,
+                              modifier = Modifier.padding(16.dp)
+                          )
+                      }
+                  }
+
+                  FloatingActionButton(
+                      onClick = {
+                          val cap = imageCapture ?: return@FloatingActionButton
+                          if (busy) return@FloatingActionButton
+                          busy = true
+                          status = "מצלם..."
+                          val file = File(ctx.cacheDir, "shot_${System.currentTimeMillis()}.jpg")
+                          val opts = ImageCapture.OutputFileOptions.Builder(file).build()
+                          cap.takePicture(opts, ContextCompat.getMainExecutor(ctx),
+                              object : ImageCapture.OnImageSavedCallback {
+                                  override fun onImageSaved(out: ImageCapture.OutputFileResults) {
+                                      scope.launch {
+                                          status = "שולח לחיפוש..."
+                                          // תיקון 1: מקטין את התמונה לפני טעינה לזיכרון כדי למנוע קריסה
+                                          val options = BitmapFactory.Options().apply { inSampleSize = 4 }
+                                          val bmp0 = BitmapFactory.decodeFile(file.absolutePath, options)
+                                          val bmp = normalize(bmp0)
+                                          val localPath = savePhoto(ctx, bmp)
+                                          val client = SocialSearchClient(
+                                              apiKey = apiKey, baseUrl = baseUrl
+                                          )
+                                          val result = client.search(bmp)
+                                          // תיקון 2: טיפול בשגיאות ביצירת JSON ושמירה ב-DB
+                                          val json = try {
+                                              JSONArray().apply {
+                                                  result.getOrNull()?.forEach { put(it.toJson()) }
+                                              }.toString()
+                                          } catch (e: Exception) {
+                                              "[]"
+                                          }
+                                          val count = result.getOrNull()?.size ?: 0
+                                          val err = result.exceptionOrNull()?.message
+                                          val rec = SearchRecord(
+                                              photoPath = localPath,
+                                              resultsJson = json,
+                                              resultCount = count,
+                                              error = err
+                                          )
+                                          val id = withContext(Dispatchers.IO) {
+                                              try { dao.insert(rec) } catch (e: Exception) { 0L }
+                                          }
+                                          withContext(Dispatchers.Main) {
+                                              busy = false
+                                              status = ""
+                                              file.delete()
+                                              onComplete(id)
+                                          }
+                                      }
+                                  }
+                                  override fun onError(exc: ImageCaptureException) {
+                                      busy = false
+                                      status = "שגיאה: ${exc.message}"
+                                  }
+                              })
+                      },
+                      modifier = Modifier.align(Alignment.BottomCenter)
+                          .padding(bottom = 32.dp).size(76.dp),
+                      shape = CircleShape,
+                      containerColor = NeoCyan
+                  ) {
+                      Icon(Icons.Default.CameraAlt, "צלם", tint = NeoBg, modifier = Modifier.size(36.dp))
+                  }
+
+                  if (busy) {
+                      Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f))) {
+                          Column(
+                              Modifier.align(Alignment.Center),
+                              horizontalAlignment = Alignment.CenterHorizontally
+                          ) {
+                              CircularProgressIndicator(color = NeoCyan)
+                              Spacer(Modifier.height(16.dp))
+                              Text(status, color = NeoCyan)
+                          }
+                      }
+                  }
+              }
+          }
+
+          private fun normalize(src: Bitmap?): Bitmap {
+              if (src == null) return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+              val maxDim = 1024
+              if (src.width > src.height) {
+                  if (src.width <= maxDim) return src
+                  return Bitmap.createScaledBitmap(src, maxDim, src.height * maxDim / src.width, true)
+              }
+              if (src.height <= maxDim) return src
+              return Bitmap.createScaledBitmap(src, src.width * maxDim / src.height, maxDim, true)
+          }
+          EOF
+
+          cat > app/src/main/java/com/neoface/ui/ResultsScreen.kt << 'EOF'
+          package com.neoface.ui
+
+          import android.content.Intent
+          import android.graphics.BitmapFactory
+          import android.net.Uri
+          import androidx.compose.foundation.Image
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.foundation.shape.CircleShape
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.graphics.asImageBitmap
+          import androidx.compose.ui.layout.ContentScale
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import coil.compose.AsyncImage
+          import com.neoface.NeoBg
+          import com.neoface.NeoCyan
+          import com.neoface.NeoGreen
+          import com.neoface.NeoPurple
+          import com.neoface.NeoRed
+          import com.neoface.NeoSurface
+          import com.neoface.data.SearchDao
+          import com.neoface.engine.SocialProfile
+          import com.neoface.engine.parseProfiles
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.launch
+          import kotlinx.coroutines.withContext
+          import java.text.SimpleDateFormat
+          import java.util.*
+
+          @Composable
+          fun ResultsScreen(dao: SearchDao, id: Long, onBackToCamera: () -> Unit) {
+              val ctx = LocalContext.current
+              val scope = rememberCoroutineScope()
+              var record by remember { mutableStateOf<com.neoface.data.SearchRecord?>(null) }
+              var profiles by remember { mutableStateOf<List<SocialProfile>>(emptyList()) }
+
+              LaunchedEffect(id) {
+                  val r = withContext(Dispatchers.IO) { dao.get(id) }
+                  record = r
+                  profiles = r?.let { parseProfiles(it.resultsJson) } ?: emptyList()
+              }
+
+              val rec = record
+              Column(Modifier.fillMaxSize().background(NeoBg)) {
+                  if (rec == null) {
+                      Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                          CircularProgressIndicator(color = NeoCyan)
+                      }
+                      return@Column
+                  }
+
+                  Surface(color = NeoSurface, modifier = Modifier.fillMaxWidth()) {
+                      Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                          val bmp = remember { BitmapFactory.decodeFile(rec.photoPath) }
+                          if (bmp != null) {
+                              Image(
+                                  bmp.asImageBitmap(), null,
+                                  modifier = Modifier.size(72.dp).clip(CircleShape),
+                                  contentScale = ContentScale.Crop
+                              )
+                              Spacer(Modifier.width(16.dp))
+                          }
+                          Column(Modifier.weight(1f)) {
+                              Text("תוצאות חיפוש", color = NeoCyan,
+                                  style = MaterialTheme.typography.titleLarge,
+                                  fontWeight = FontWeight.Bold)
+                              Text(
+                                  "${rec.resultCount} פרופילים נמצאו",
+                                  color = if (rec.resultCount > 0) NeoGreen else NeoRed
+                              )
+                              Text(
+                                  SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                                      .format(Date(rec.timestamp)),
+                                  color = Color.Gray,
+                                  style = MaterialTheme.typography.bodySmall
+                              )
+                          }
+                          IconButton(onClick = {
+                              scope.launch { withContext(Dispatchers.IO) { dao.delete(rec) }; onBackToCamera() }
+                          }) { Icon(Icons.Default.Delete, "מחק", tint = NeoRed) }
+                      }
+                  }
+
+                  if (rec.error != null) {
+                      Surface(
+                          Modifier.fillMaxWidth().padding(16.dp),
+                          color = NeoRed.copy(alpha = 0.15f),
+                          shape = RoundedCornerShape(12.dp)
+                      ) {
+                          Column(Modifier.padding(16.dp)) {
+                              Text("שגיאה בחיפוש", color = NeoRed, fontWeight = FontWeight.Bold)
+                              Spacer(Modifier.height(4.dp))
+                              Text(rec.error, color = Color.White, style = MaterialTheme.typography.bodySmall)
+                          }
+                      }
+                  }
+
+                  if (profiles.isEmpty() && rec.error == null) {
+                      Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                          Column(horizontalAlignment = Alignment.CenterHorizontally,
+                              modifier = Modifier.padding(32.dp)) {
+                              Icon(Icons.Default.SearchOff, null,
+                                  tint = NeoCyan, modifier = Modifier.size(72.dp))
+                              Spacer(Modifier.height(16.dp))
+                              Text("לא נמצאו פרופילים", color = Color.White,
+                                  style = MaterialTheme.typography.titleMedium)
+                              Text("ייתכן שהאדם לא מופיע באופן ציבורי ברשת",
+                                  color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                          }
+                      }
+                  } else {
+                      LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+                          items(profiles, key = { it.url }) { p -> ProfileCard(p) { openUrl(ctx, p.url) } }
+                          item { Spacer(Modifier.height(16.dp)) }
+                      }
+                  }
+
+                  Button(
+                      onClick = onBackToCamera,
+                      modifier = Modifier.fillMaxWidth().padding(16.dp),
+                      colors = ButtonDefaults.buttonColors(containerColor = NeoPurple)
+                  ) {
+                      Icon(Icons.Default.CameraAlt, null); Spacer(Modifier.width(8.dp))
+                      Text("חפש שוב")
+                  }
+              }
+          }
+
+          @Composable
+          private fun ProfileCard(p: SocialProfile, onClick: () -> Unit) {
+              Surface(
+                  Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                      .clip(RoundedCornerShape(14.dp)).clickable { onClick() },
+                  color = NeoSurface
+              ) {
+                  Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                      if (!p.thumbnailUrl.isNullOrBlank()) {
+                          AsyncImage(
+                              model = p.thumbnailUrl, contentDescription = null,
+                              modifier = Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)),
+                              contentScale = ContentScale.Crop
+                          )
+                      } else {
+                          Surface(
+                              Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)),
+                              color = NeoBg
+                          ) {
+                              Box(contentAlignment = Alignment.Center) {
+                                  Icon(Icons.Default.Person, null, tint = NeoCyan)
+                              }
+                          }
+                      }
+                      Spacer(Modifier.width(12.dp))
+                      Column(Modifier.weight(1f)) {
+                          Row(verticalAlignment = Alignment.CenterVertically) {
+                              Text(platformEmoji(p.platform), fontSize = 18.sp)
+                              Spacer(Modifier.width(6.dp))
+                              Text(p.platform, color = NeoCyan,
+                                  style = MaterialTheme.typography.titleMedium,
+                                  fontWeight = FontWeight.Bold)
+                              Spacer(Modifier.weight(1f))
+                              if (p.score > 0) {
+                                  Text("${"%.0f".format(p.score * 100)}%",
+                                      color = if (p.score > 0.7) NeoGreen else NeoPurple,
+                                      style = MaterialTheme.typography.labelLarge)
+                              }
+                          }
+                          if (p.title.isNotBlank()) {
+                              Text(p.title, color = Color.White,
+                                  style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                          }
+                          Text(p.url, color = Color.Gray,
+                              style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                      }
+                      Icon(Icons.Default.OpenInNew, null, tint = NeoCyan)
+                  }
+              }
+          }
+
+          private fun platformEmoji(p: String) = when (p) {
+              "Instagram" -> "📷"
+              "TikTok" -> "🎵"
+              "Facebook" -> "📘"
+              "X" -> "🐦"
+              "LinkedIn" -> "💼"
+              "YouTube" -> "▶️"
+              "VK" -> "🇷🇺"
+              "Telegram" -> "✈️"
+              "Pinterest" -> "📌"
+              "Reddit" -> "👽"
+              else -> "🌐"
+          }
+
+          private fun openUrl(ctx: android.content.Context, url: String) {
+              try {
+                  ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+              } catch (_: Exception) {}
+          }
+          EOF
+
+          cat > app/src/main/java/com/neoface/ui/HistoryScreen.kt << 'EOF'
+          package com.neoface.ui
+
+          import android.graphics.BitmapFactory
+          import androidx.compose.foundation.Image
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.Delete
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.graphics.asImageBitmap
+          import androidx.compose.ui.layout.ContentScale
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.dp
+          import com.neoface.NeoBg
+          import com.neoface.NeoCyan
+          import com.neoface.NeoRed
+          import com.neoface.NeoSurface
+          import com.neoface.data.SearchDao
+          import com.neoface.data.SearchRecord
+          import kotlinx.coroutines.launch
+          import java.text.SimpleDateFormat
+          import java.util.*
+
+          @Composable
+          fun HistoryScreen(dao: SearchDao, onOpen: (Long) -> Unit) {
+              val items by dao.all().collectAsState(initial = emptyList())
+              val scope = rememberCoroutineScope()
+
+              Column(Modifier.fillMaxSize().background(NeoBg)) {
+                  Surface(color = NeoSurface, modifier = Modifier.fillMaxWidth()) {
+                      Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                          Text("היסטוריית חיפושים", color = NeoCyan,
+                              style = MaterialTheme.typography.titleLarge,
+                              fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                          Text("${items.size}", color = NeoCyan)
+                      }
+                  }
+
+                  if (items.isEmpty()) {
+                      Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                          Text("אין חיפושים שמורים עדיין", color = Color.Gray)
+                      }
+                  } else {
+                      LazyColumn(Modifier.fillMaxSize()) {
+                          items(items, key = { it.id }) { rec ->
+                              HistoryRow(rec, { onOpen(rec.id) }, { scope.launch { dao.delete(rec) } })
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          private fun HistoryRow(rec: SearchRecord, onClick: () -> Unit, onDelete: () -> Unit) {
+              Surface(
+                  Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                      .clip(RoundedCornerShape(12.dp)).clickable { onClick() },
+                  color = NeoSurface
+              ) {
+                  Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                      val bmp = remember(rec.id) { BitmapFactory.decodeFile(rec.photoPath) }
+                      if (bmp != null) {
+                          Image(bmp.asImageBitmap(), null,
+                              modifier = Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)),
+                              contentScale = ContentScale.Crop)
+                      } else {
+                          Box(Modifier.size(56.dp).clip(RoundedCornerShape(10.dp)).background(NeoBg))
+                      }
+                      Spacer(Modifier.width(12.dp))
+                      Column(Modifier.weight(1f)) {
+                          Text(
+                              if (rec.error != null) "שגיאה" else "${rec.resultCount} פרופילים",
+                              color = if (rec.error != null) NeoRed else NeoCyan,
+                              fontWeight = FontWeight.Bold
+                          )
+                          Text(
+                              SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                                  .format(Date(rec.timestamp)),
+                              color = Color.Gray, style = MaterialTheme.typography.bodySmall
+                          )
+                      }
+                      IconButton(onClick = onDelete) {
+                          Icon(Icons.Default.Delete, "מחק", tint = NeoRed)
+                      }
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/neoface/ui/SettingsScreen.kt << 'EOF'
+          package com.neoface.ui
+
+          import android.content.Intent
+          import android.net.Uri
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.OpenInNew
+          import androidx.compose.material.icons.filled.Save
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.dp
+          import com.neoface.NeoBg
+          import com.neoface.NeoCyan
+          import com.neoface.NeoGreen
+          import com.neoface.NeoPurple
+          import com.neoface.NeoSurface
+          import com.neoface.Settings
+
+          @Composable
+          fun SettingsScreen() {
+              val ctx = LocalContext.current
+              var apiKey by remember { mutableStateOf(Settings.getApiKey(ctx)) }
+              var baseUrl by remember { mutableStateOf(Settings.getBaseUrl(ctx)) }
+              var saved by remember { mutableStateOf(false) }
+
+              Column(Modifier.fillMaxSize().background(NeoBg)
+                  .verticalScroll(rememberScrollState()).padding(16.dp)) {
+
+                  Text("הגדרות NeoFace", color = NeoCyan,
+                      style = MaterialTheme.typography.headlineSmall,
+                      fontWeight = FontWeight.Bold)
+                  Spacer(Modifier.height(16.dp))
+
+                  Text("מפתח FaceSeek API", color = Color.White,
+                      style = MaterialTheme.typography.titleMedium)
+                  Spacer(Modifier.height(4.dp))
+                  Text("מפתח חינמי מ-faceseek.online (מתחיל ב-fsk_)",
+                      color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                  Spacer(Modifier.height(8.dp))
+
+                  OutlinedTextField(
+                      value = apiKey,
+                      onValueChange = { apiKey = it; saved = false },
+                      label = { Text("API Key") },
+                      placeholder = { Text("fsk_...") },
+                      modifier = Modifier.fillMaxWidth(),
+                      singleLine = true
+                  )
+
+                  Spacer(Modifier.height(8.dp))
+                  OutlinedButton(
+                      onClick = {
+                          ctx.startActivity(Intent(Intent.ACTION_VIEW,
+                              Uri.parse("https://www.faceseek.online"))
+                              .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                      },
+                      modifier = Modifier.fillMaxWidth()
+                  ) {
+                      Icon(Icons.Default.OpenInNew, null, tint = NeoCyan)
+                      Spacer(Modifier.width(8.dp))
+                      Text("פתח אתר FaceSeek להרשמה")
+                  }
+
+                  Spacer(Modifier.height(24.dp))
+                  Text("כתובת שרת (מתקדם)", color = Color.White,
+                      style = MaterialTheme.typography.titleMedium)
+                  Spacer(Modifier.height(8.dp))
+                  OutlinedTextField(
+                      value = baseUrl,
+                      onValueChange = { baseUrl = it; saved = false },
+                      label = { Text("Base URL") },
+                      modifier = Modifier.fillMaxWidth(),
+                      singleLine = true
+                  )
+
+                  Spacer(Modifier.height(24.dp))
+                  Button(
+                      onClick = {
+                          Settings.setApiKey(ctx, apiKey)
+                          Settings.setBaseUrl(ctx, baseUrl)
+                          saved = true
+                      },
+                      modifier = Modifier.fillMaxWidth(),
+                      colors = ButtonDefaults.buttonColors(containerColor = NeoPurple)
+                  ) {
+                      Icon(Icons.Default.Save, null)
+                      Spacer(Modifier.width(8.dp))
+                      Text("שמור")
+                  }
+
+                  if (saved) {
+                      Spacer(Modifier.height(8.dp))
+                      Text("✓ נשמר בהצלחה", color = NeoGreen)
+                  }
+
+                  Spacer(Modifier.height(32.dp))
+                  Surface(color = NeoSurface, shape = MaterialTheme.shapes.large) {
+                      Column(Modifier.padding(16.dp)) {
+                          Text("איך זה עובד", color = NeoCyan,
+                              style = MaterialTheme.typography.titleMedium)
+                          Spacer(Modifier.height(8.dp))
+                          Text(
+                              "NeoFace שולחת את תמונת הפנים שלך לשרת FaceSeek, " +
+                                  "שמחפש התאמות באתרים ציבוריים ברשת. " +
+                                  "התוצאות מוצגות כאחוז התאמה עם קישור לפרופיל המקורי.",
+                              color = Color.White,
+                              style = MaterialTheme.typography.bodySmall
+                          )
+                      }
+                  }
+
+                  Spacer(Modifier.height(16.dp))
+                  Surface(color = NeoSurface, shape = MaterialTheme.shapes.large) {
+                      Column(Modifier.padding(16.dp)) {
+                          Text("⚠️ אזהרה משפטית", color = NeoCyan,
+                              style = MaterialTheme.typography.titleMedium)
+                          Spacer(Modifier.height(8.dp))
+                          Text(
+                              "שימוש בחיפוש פנים הפוך כפוף לחוקי פרטיות (GDPR, CCPA וכו'). " +
+                                  "אין להשתמש באפליקציה למטרות הטרדה, סטוקינג או כל שימוש בלתי חוקי. " +
+                                  "המשתמש אחראי באופן בלעדי לכל שימוש.",
+                              color = Color.White,
+                              style = MaterialTheme.typography.bodySmall
+                          )
+                      }
+                  }
+
+                  Spacer(Modifier.height(32.dp))
+                  Text("NeoFace v1.0.0", color = Color.Gray,
+                      style = MaterialTheme.typography.bodySmall,
+                      modifier = Modifier.align(Alignment.CenterHorizontally))
+              }
+          }
+          EOF
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
