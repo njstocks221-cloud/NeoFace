@@ -689,16 +689,23 @@ jobs:
                                   override fun onImageSaved(out: ImageCapture.OutputFileResults) {
                                       scope.launch {
                                           status = "שולח לחיפוש..."
-                                          val bmp0 = BitmapFactory.decodeFile(file.absolutePath)
+                                          // תיקון 1: מקטין את התמונה לפני טעינה לזיכרון כדי למנוע קריסה
+                                          val options = BitmapFactory.Options().apply { inSampleSize = 4 }
+                                          val bmp0 = BitmapFactory.decodeFile(file.absolutePath, options)
                                           val bmp = normalize(bmp0)
                                           val localPath = savePhoto(ctx, bmp)
                                           val client = SocialSearchClient(
                                               apiKey = apiKey, baseUrl = baseUrl
                                           )
                                           val result = client.search(bmp)
-                                          val json = JSONArray().apply {
-                                              result.getOrNull()?.forEach { put(it.toJson()) }
-                                          }.toString()
+                                          // תיקון 2: טיפול בשגיאות ביצירת JSON ושמירה ב-DB
+                                          val json = try {
+                                              JSONArray().apply {
+                                                  result.getOrNull()?.forEach { put(it.toJson()) }
+                                              }.toString()
+                                          } catch (e: Exception) {
+                                              "[]"
+                                          }
                                           val count = result.getOrNull()?.size ?: 0
                                           val err = result.exceptionOrNull()?.message
                                           val rec = SearchRecord(
@@ -707,7 +714,9 @@ jobs:
                                               resultCount = count,
                                               error = err
                                           )
-                                          val id = withContext(Dispatchers.IO) { dao.insert(rec) }
+                                          val id = withContext(Dispatchers.IO) {
+                                              try { dao.insert(rec) } catch (e: Exception) { 0L }
+                                          }
                                           withContext(Dispatchers.Main) {
                                               busy = false
                                               status = ""
