@@ -52,7 +52,7 @@ jobs:
               repositories {
                   google()
                   mavenCentral()
-                  maven { url 'https://jitpack.io' } // הוספנו את המאגר של ספריית החיתוך
+                  maven { url 'https://jitpack.io' }
               }
           }
           rootProject.name = "NeoFace"
@@ -116,7 +116,7 @@ jobs:
               implementation 'io.coil-kt:coil-compose:2.5.0'
               implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
               implementation 'androidx.core:core-ktx:1.12.0'
-              implementation 'com.github.yalantis:ucrop:2.2.8' // ספריית חיתוך התמונה
+              implementation 'com.github.yalantis:ucrop:2.2.8'
           }
           EOF
 
@@ -126,6 +126,7 @@ jobs:
               xmlns:tools="http://schemas.android.com/tools">
               <uses-permission android:name="android.permission.CAMERA" />
               <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
               <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
               <uses-feature android:name="android.hardware.camera" android:required="true" />
               <application
@@ -167,6 +168,7 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <paths xmlns:android="http://schemas.android.com/apk/res/android">
               <cache-path name="images" path="images/" />
+              <cache-path name="cropped" path="cropped/" />
           </paths>
           EOF
 
@@ -479,6 +481,7 @@ jobs:
           cat > app/src/main/java/com/neoface/MainActivity.kt << 'EOF'
           package com.neoface
 
+          import android.Manifest
           import android.os.Bundle
           import androidx.activity.ComponentActivity
           import androidx.activity.compose.setContent
@@ -486,16 +489,37 @@ jobs:
           import androidx.compose.foundation.layout.*
           import androidx.compose.material3.*
           import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
           import androidx.compose.ui.Modifier
           import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.unit.dp
+          import com.google.accompanist.permissions.*
 
           class MainActivity : ComponentActivity() {
+              @OptIn(ExperimentalPermissionsApi::class)
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   setContent {
                       NeoFaceTheme {
+                          val perm = rememberPermissionState(Manifest.permission.CAMERA)
+                          LaunchedEffect(Unit) { if (!perm.status.isGranted) perm.launchPermissionRequest() }
                           Box(Modifier.fillMaxSize().background(NeoBg)) {
-                              AppRoot()
+                              if (perm.status.isGranted) {
+                                  AppRoot()
+                              } else {
+                                  Column(
+                                      Modifier.fillMaxSize().padding(32.dp),
+                                      verticalArrangement = Arrangement.Center,
+                                      horizontalAlignment = Alignment.CenterHorizontally
+                                  ) {
+                                      Text("NeoFace זקוק להרשאת מצלמה", color = NeoCyan,
+                                          style = MaterialTheme.typography.titleLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                      Spacer(Modifier.height(16.dp))
+                                      Button(onClick = { perm.launchPermissionRequest() }) {
+                                          Text("אשר הרשאה")
+                                      }
+                                  }
+                              }
                           }
                       }
                   }
@@ -601,6 +625,7 @@ jobs:
           import androidx.compose.ui.Modifier
           import androidx.compose.ui.graphics.Color
           import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.text.style.TextAlign
           import androidx.compose.ui.unit.dp
           import androidx.core.content.FileProvider
           import com.neoface.*
@@ -627,7 +652,6 @@ jobs:
               val apiKey = Settings.getApiKey(ctx)
               val baseUrl = Settings.getBaseUrl(ctx)
 
-              // מפעיל את מסך החיתוך של uCrop
               val uCropLauncher = rememberLauncherForActivityResult(
                   contract = ActivityResultContracts.StartActivityForResult()
               ) { result ->
@@ -645,15 +669,15 @@ jobs:
                                   val bmp = normalize(bmp0)
                                   val localPath = savePhoto(ctx, bmp)
                                   val client = SocialSearchClient(apiKey = apiKey, baseUrl = baseUrl)
-                                  val result = client.search(bmp)
+                                  val apiResult = client.search(bmp)
                                   val json = try {
                                       JSONArray().apply {
-                                          result.getOrNull()?.forEach { put(it.toJson()) }
+                                          apiResult.getOrNull()?.forEach { put(it.toJson()) }
                                       }.toString()
                                   } catch (e: Exception) { "[]" }
                                   
-                                  val count = result.getOrNull()?.size ?: 0
-                                  val err = result.exceptionOrNull()?.message
+                                  val count = apiResult.getOrNull()?.size ?: 0
+                                  val err = apiResult.exceptionOrNull()?.message
                                   val rec = SearchRecord(
                                       photoPath = localPath,
                                       resultsJson = json,
@@ -674,20 +698,27 @@ jobs:
                               }
                           }
                       }
+                  } else if (result.resultCode == UCrop.RESULT_ERROR) {
+                      val cropError = UCrop.getError(result.data!!)
+                      status = "שגיאה בחיתוך: ${cropError?.message}"
                   }
               }
 
-              // מפעיל את המצלמה המקורית של הטלפון
               val cameraLauncher = rememberLauncherForActivityResult(
                   contract = ActivityResultContracts.TakePicture()
               ) { success ->
                   if (success) {
                       val uri = currentPhotoUri ?: return@rememberLauncherForActivityResult
-                      // אחרי הצילום, פותחים את מסך החיתוך
-                      val destinationUri = Uri.fromFile(File(ctx.cacheDir, "cropped_${System.currentTimeMillis()}.jpg"))
+                      val cropDir = File(ctx.cacheDir, "cropped").apply { mkdirs() }
+                      val destinationFile = File(cropDir, "cropped_${System.currentTimeMillis()}.jpg")
+                      val destinationUri = FileProvider.getUriForFile(
+                          ctx,
+                          "${ctx.packageName}.fileprovider",
+                          destinationFile
+                      )
                       val uCropIntent = UCrop.of(uri, destinationUri)
-                          .withAspectRatio(1f, 1f) // חיתוך מרובע (מתאים לפנים)
-                          .withMaxResultSize(1024, 1024) // מגביל את גודל התמונה כדי למנוע קריסות
+                          .withAspectRatio(1f, 1f)
+                          .withMaxResultSize(1024, 1024)
                           .getIntent(ctx)
                       uCropLauncher.launch(uCropIntent)
                   }
@@ -699,26 +730,16 @@ jobs:
                       verticalArrangement = Arrangement.Center,
                       horizontalAlignment = Alignment.CenterHorizontally
                   ) {
-                      Text(
-                          "מוכן לחיפוש פנים",
-                          color = NeoCyan,
-                          style = MaterialTheme.typography.headlineMedium
-                      )
+                      Text("מוכן לחיפוש פנים", color = NeoCyan, style = MaterialTheme.typography.headlineMedium)
                       Spacer(Modifier.height(16.dp))
                       Text(
                           "לחץ על הכפתור למטה כדי לפתוח את המצלמה ולחתוך את הפנים",
-                          color = Color.Gray,
-                          style = MaterialTheme.typography.bodyLarge,
-                          textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                          color = Color.Gray, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center
                       )
                       Spacer(Modifier.height(32.dp))
 
                       if (apiKey.isBlank()) {
-                          Text(
-                              "⚠️ חסר מפתח API. עבור להגדרות והזן מפתח.",
-                              color = NeoRed,
-                              style = MaterialTheme.typography.bodyMedium
-                          )
+                          Text("⚠️ חסר מפתח API. עבור להגדרות והזן מפתח.", color = NeoRed, style = MaterialTheme.typography.bodyMedium)
                           Spacer(Modifier.height(16.dp))
                       }
 
@@ -727,11 +748,7 @@ jobs:
                               if (apiKey.isBlank()) return@FloatingActionButton
                               val imagesDir = File(ctx.cacheDir, "images").apply { mkdirs() }
                               val file = File(imagesDir, "capture_${System.currentTimeMillis()}.jpg")
-                              val uri = FileProvider.getUriForFile(
-                                  ctx,
-                                  "${ctx.packageName}.fileprovider",
-                                  file
-                              )
+                              val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
                               currentPhotoUri = uri
                               cameraLauncher.launch(uri)
                           },
@@ -741,17 +758,13 @@ jobs:
                       ) {
                           Icon(Icons.Default.CameraAlt, "צלם", tint = NeoBg, modifier = Modifier.size(48.dp))
                       }
-                      
                       Spacer(Modifier.height(16.dp))
                       Text("פתח מצלמה", color = NeoCyan)
                   }
 
                   if (busy) {
                       Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f))) {
-                          Column(
-                              Modifier.align(Alignment.Center),
-                              horizontalAlignment = Alignment.CenterHorizontally
-                          ) {
+                          Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                               CircularProgressIndicator(color = NeoCyan)
                               Spacer(Modifier.height(16.dp))
                               Text(status, color = NeoCyan)
