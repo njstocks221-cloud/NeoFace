@@ -158,6 +158,7 @@ jobs:
                   android:required="false" />
 
               <queries>
+
                   <intent>
                       <action android:name="android.media.action.IMAGE_CAPTURE" />
                   </intent>
@@ -167,6 +168,7 @@ jobs:
                       <category android:name="android.intent.category.OPENABLE" />
                       <data android:mimeType="image/*" />
                   </intent>
+
               </queries>
 
               <application
@@ -202,11 +204,17 @@ jobs:
           cat > app/src/main/res/values/themes.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <style name="Theme.NeoFace" parent="android:theme.Material.NoActionBar">
+
+              <style
+                  name="Theme.NeoFace"
+                  parent="android:style/Theme.Material.NoActionBar">
+
                   <item name="android:statusBarColor">#0A0E27</item>
                   <item name="android:navigationBarColor">#0A0E27</item>
                   <item name="android:windowBackground">#0A0E27</item>
+
               </style>
+
           </resources>
           EOF
 
@@ -319,31 +327,63 @@ jobs:
 
               const val DEFAULT_URL = "https://api.faceseek.online"
 
-              fun getApiKey(ctx: Context): String =
-                  ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                      .getString(KEY_API, "") ?: ""
+              fun getApiKey(ctx: Context): String {
+                  return ctx
+                      .getSharedPreferences(
+                          PREFS,
+                          Context.MODE_PRIVATE
+                      )
+                      .getString(
+                          KEY_API,
+                          ""
+                      ) ?: ""
+              }
 
               fun setApiKey(
                   ctx: Context,
                   key: String
-              ) =
-                  ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+              ) {
+                  ctx
+                      .getSharedPreferences(
+                          PREFS,
+                          Context.MODE_PRIVATE
+                      )
                       .edit()
-                      .putString(KEY_API, key.trim())
+                      .putString(
+                          KEY_API,
+                          key.trim()
+                      )
                       .apply()
+              }
 
-              fun getBaseUrl(ctx: Context): String =
-                  ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                      .getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL
+              fun getBaseUrl(ctx: Context): String {
+                  return ctx
+                      .getSharedPreferences(
+                          PREFS,
+                          Context.MODE_PRIVATE
+                      )
+                      .getString(
+                          KEY_URL,
+                          DEFAULT_URL
+                      ) ?: DEFAULT_URL
+              }
 
               fun setBaseUrl(
                   ctx: Context,
                   url: String
-              ) =
-                  ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+              ) {
+                  ctx
+                      .getSharedPreferences(
+                          PREFS,
+                          Context.MODE_PRIVATE
+                      )
                       .edit()
-                      .putString(KEY_URL, url.trim())
+                      .putString(
+                          KEY_URL,
+                          url.trim()
+                      )
                       .apply()
+              }
           }
           EOF
 
@@ -383,21 +423,37 @@ jobs:
           interface SearchDao {
 
               @Insert
-              suspend fun insert(s: SearchRecord): Long
+              suspend fun insert(
+                  s: SearchRecord
+              ): Long
 
-              @Query("SELECT * FROM searches ORDER BY timestamp DESC")
+              @Query(
+                  "SELECT * FROM searches ORDER BY timestamp DESC"
+              )
               fun all(): Flow<List<SearchRecord>>
 
-              @Query("SELECT * FROM searches WHERE id = :id")
-              suspend fun get(id: Long): SearchRecord?
+              @Query(
+                  "SELECT * FROM searches WHERE id = :id"
+              )
+              suspend fun get(
+                  id: Long
+              ): SearchRecord?
 
-              @Query("SELECT * FROM searches WHERE id = :id")
-              fun observe(id: Long): Flow<SearchRecord?>
+              @Query(
+                  "SELECT * FROM searches WHERE id = :id"
+              )
+              fun observe(
+                  id: Long
+              ): Flow<SearchRecord?>
 
               @Delete
-              suspend fun delete(s: SearchRecord)
+              suspend fun delete(
+                  s: SearchRecord
+              )
 
-              @Query("DELETE FROM searches")
+              @Query(
+                  "DELETE FROM searches"
+              )
               suspend fun clear()
           }
           EOF
@@ -424,19 +480,26 @@ jobs:
                   @Volatile
                   private var instance: AppDatabase? = null
 
-                  fun get(ctx: Context): AppDatabase =
-                      instance ?: synchronized(this) {
+                  fun get(
+                      ctx: Context
+                  ): AppDatabase {
 
-                          instance ?: Room.databaseBuilder(
-                              ctx.applicationContext,
-                              AppDatabase::class.java,
-                              "neoface.db"
-                          )
-                              .build()
-                              .also {
-                                  instance = it
-                              }
-                      }
+                      return instance
+                          ?: synchronized(this) {
+
+                              instance
+                                  ?: Room
+                                      .databaseBuilder(
+                                          ctx.applicationContext,
+                                          AppDatabase::class.java,
+                                          "neoface.db"
+                                      )
+                                      .build()
+                                      .also {
+                                          instance = it
+                                      }
+                          }
+                  }
               }
           }
           EOF
@@ -458,8 +521,10 @@ jobs:
               val dir = File(
                   ctx.filesDir,
                   "photos"
-              ).apply {
-                  mkdirs()
+              )
+
+              if (!dir.exists()) {
+                  dir.mkdirs()
               }
 
               val file = File(
@@ -467,11 +532,12 @@ jobs:
                   "face_${System.currentTimeMillis()}.jpg"
               )
 
-              file.outputStream().use {
+              file.outputStream().use { out ->
+
                   bmp.compress(
                       Bitmap.CompressFormat.JPEG,
                       90,
-                      it
+                      out
                   )
               }
 
@@ -493,9 +559,9 @@ jobs:
 
                   ctx.contentResolver
                       .openInputStream(uri)
-                      ?.use {
+                      ?.use { input ->
                           BitmapFactory.decodeStream(
-                              it,
+                              input,
                               null,
                               options
                           )
@@ -515,8 +581,8 @@ jobs:
                       val halfWidth = width / 2
 
                       while (
-                          (halfHeight / inSampleSize) >= maxDim &&
-                          (halfWidth / inSampleSize) >= maxDim
+                          halfHeight / inSampleSize >= maxDim &&
+                          halfWidth / inSampleSize >= maxDim
                       ) {
                           inSampleSize *= 2
                       }
@@ -527,15 +593,16 @@ jobs:
 
                   ctx.contentResolver
                       .openInputStream(uri)
-                      ?.use {
+                      ?.use { input ->
                           BitmapFactory.decodeStream(
-                              it,
+                              input,
                               null,
                               options
                           )
                       }
 
               } catch (_: Exception) {
+
                   null
               }
           }
@@ -571,8 +638,8 @@ jobs:
                       val halfWidth = width / 2
 
                       while (
-                          (halfHeight / inSampleSize) >= maxDim &&
-                          (halfWidth / inSampleSize) >= maxDim
+                          halfHeight / inSampleSize >= maxDim &&
+                          halfWidth / inSampleSize >= maxDim
                       ) {
                           inSampleSize *= 2
                       }
@@ -587,6 +654,7 @@ jobs:
                   )
 
               } catch (_: Exception) {
+
                   null
               }
           }
@@ -607,6 +675,7 @@ jobs:
           import org.json.JSONArray
           import org.json.JSONObject
           import java.io.ByteArrayOutputStream
+          import java.nio.charset.StandardCharsets
           import java.util.concurrent.TimeUnit
 
           data class SocialProfile(
@@ -623,25 +692,31 @@ jobs:
           ) {
 
               companion object {
+
                   private const val TAG = "NeoFace"
-                  private const val MAX_RESPONSE_SIZE = 5 * 1024 * 1024
+
+                  // Prevent very large API responses from crashing the app.
+                  private const val MAX_RESPONSE_SIZE =
+                      5 * 1024 * 1024
+
                   private const val MAX_RESULTS = 50
               }
 
-              private val http = OkHttpClient.Builder()
-                  .connectTimeout(
-                      60,
-                      TimeUnit.SECONDS
-                  )
-                  .readTimeout(
-                      300,
-                      TimeUnit.SECONDS
-                  )
-                  .writeTimeout(
-                      300,
-                      TimeUnit.SECONDS
-                  )
-                  .build()
+              private val http =
+                  OkHttpClient.Builder()
+                      .connectTimeout(
+                          60,
+                          TimeUnit.SECONDS
+                      )
+                      .readTimeout(
+                          300,
+                          TimeUnit.SECONDS
+                      )
+                      .writeTimeout(
+                          300,
+                          TimeUnit.SECONDS
+                      )
+                      .build()
 
               suspend fun search(
                   bitmap: Bitmap
@@ -651,9 +726,10 @@ jobs:
                       try {
 
                           if (apiKey.isBlank()) {
+
                               return@withContext Result.failure(
                                   Exception(
-                                      "חסר מפתח API — הזן אותו בהגדרות"
+                                      "חסר מפתח API — הזן מפתח API בהגדרות"
                                   )
                               )
                           }
@@ -661,14 +737,15 @@ jobs:
                           val jpeg =
                               ByteArrayOutputStream().use { out ->
 
-                                  val success =
+                                  val compressed =
                                       bitmap.compress(
                                           Bitmap.CompressFormat.JPEG,
                                           85,
                                           out
                                       )
 
-                                  if (!success) {
+                                  if (!compressed) {
+
                                       return@withContext Result.failure(
                                           Exception(
                                               "לא ניתן לדחוס את התמונה"
@@ -681,31 +758,36 @@ jobs:
 
                           Log.d(
                               TAG,
-                              "Image size: ${jpeg.size} bytes"
+                              "Image size = ${jpeg.size} bytes"
                           )
 
-                          val imgBody =
+                          val imageBody =
                               jpeg.toRequestBody(
                                   "image/jpeg".toMediaType()
                               )
 
                           val multipart =
                               MultipartBody.Builder()
-                                  .setType(MultipartBody.FORM)
+                                  .setType(
+                                      MultipartBody.FORM
+                                  )
                                   .addFormDataPart(
                                       "file",
                                       "face.jpg",
-                                      imgBody
+                                      imageBody
                                   )
                                   .build()
 
                           val url =
-                              baseUrl.trimEnd('/') +
-                                  "/v1/api/search"
+                              baseUrl
+                                  .trimEnd('/')
+                                  .plus(
+                                      "/v1/api/search"
+                                  )
 
                           Log.d(
                               TAG,
-                              "Request URL: $url"
+                              "Request URL = $url"
                           )
 
                           val request =
@@ -722,100 +804,178 @@ jobs:
                                   .post(multipart)
                                   .build()
 
-                          http.newCall(request)
-                              .execute()
-                              .use { response ->
+                          http.newCall(
+                              request
+                          ).execute().use { response ->
 
-                                  Log.d(
-                                      TAG,
-                                      "HTTP ${response.code} ${response.message}"
-                                  )
+                              Log.d(
+                                  TAG,
+                                  "HTTP ${response.code} ${response.message}"
+                              )
 
-                                  if (!response.isSuccessful) {
+                              if (!response.isSuccessful) {
 
-                                      val errorBody =
+                                  val errorBody =
+                                      try {
                                           response.body
                                               ?.string()
                                               ?.take(1000)
                                               .orEmpty()
+                                      } catch (_: Exception) {
+                                          ""
+                                      }
 
-                                      Log.e(
-                                          TAG,
-                                          "Server error: $errorBody"
-                                      )
+                                  Log.e(
+                                      TAG,
+                                      "Server error: $errorBody"
+                                  )
 
-                                      return@withContext Result.failure(
-                                          Exception(
-                                              "HTTP ${response.code}: " +
-                                                  if (
-                                                      errorBody.isNotBlank()
-                                                  ) {
-                                                      errorBody
-                                                  } else {
-                                                      response.message
+                                  return@withContext Result.failure(
+                                      Exception(
+                                          "HTTP ${response.code}: " +
+                                              if (
+                                                  errorBody.isNotBlank()
+                                              ) {
+                                                  errorBody
+                                              } else {
+                                                  response.message.ifBlank {
+                                                      "שגיאת שרת"
                                                   }
-                                          )
+                                              }
                                       )
-                                  }
+                                  )
+                              }
 
-                                  val responseBody =
-                                      response.body
-                                          ?: return@withContext Result.failure(
-                                              Exception(
-                                                  "השרת החזיר תשובה ריקה"
+                              val responseBody =
+                                  response.body
+
+                              if (responseBody == null) {
+
+                                  return@withContext Result.failure(
+                                      Exception(
+                                          "השרת החזיר תשובה ריקה"
+                                      )
+                                  )
+                              }
+
+                              val contentLength =
+                                  responseBody.contentLength()
+
+                              Log.d(
+                                  TAG,
+                                  "Content-Length = $contentLength"
+                              )
+
+                              if (
+                                  contentLength > MAX_RESPONSE_SIZE
+                              ) {
+
+                                  return@withContext Result.failure(
+                                      Exception(
+                                          "תשובת השרת גדולה מדי " +
+                                              "(${contentLength / 1024 / 1024} MB)"
+                                      )
+                                  )
+                              }
+
+                              /*
+                               * Important:
+                               * Do NOT use responseBody.string()
+                               * without a size limit.
+                               *
+                               * We read the stream in chunks and stop
+                               * if it exceeds MAX_RESPONSE_SIZE.
+                               */
+
+                              val bodyBytes =
+                                  ByteArrayOutputStream(
+                                      minOf(
+                                          if (
+                                              contentLength > 0
+                                          ) {
+                                              contentLength.toInt()
+                                          } else {
+                                              64 * 1024
+                                          },
+                                          MAX_RESPONSE_SIZE
+                                      )
+                                  )
+
+                              val buffer =
+                                  ByteArray(
+                                      16 * 1024
+                                  )
+
+                              var totalRead = 0
+
+                              responseBody
+                                  .byteStream()
+                                  .use { input ->
+
+                                      while (true) {
+
+                                          val read =
+                                              input.read(
+                                                  buffer
                                               )
+
+                                          if (read == -1) {
+                                              break
+                                          }
+
+                                          totalRead += read
+
+                                          if (
+                                              totalRead >
+                                              MAX_RESPONSE_SIZE
+                                          ) {
+
+                                              Log.e(
+                                                  TAG,
+                                                  "Response exceeded maximum size"
+                                              )
+
+                                              return@withContext Result.failure(
+                                                  Exception(
+                                                      "תשובת השרת גדולה מדי. " +
+                                                          "השרת החזיר יותר מ-5MB של נתונים."
+                                                  )
+                                              )
+                                          }
+
+                                          bodyBytes.write(
+                                              buffer,
+                                              0,
+                                              read
                                           )
-
-                                  val contentLength =
-                                      responseBody.contentLength()
-
-                                  Log.d(
-                                      TAG,
-                                      "Response size: $contentLength bytes"
-                                  )
-
-                                  if (
-                                      contentLength > MAX_RESPONSE_SIZE
-                                  ) {
-
-                                      return@withContext Result.failure(
-                                          Exception(
-                                              "תשובת השרת גדולה מדי " +
-                                                  "(${contentLength / 1024 / 1024} MB)"
-                                          )
-                                      )
+                                      }
                                   }
 
-                                  val body =
-                                      responseBody.string()
-
-                                  if (body.isBlank()) {
-
-                                      return@withContext Result.failure(
-                                          Exception(
-                                              "השרת החזיר תשובה ריקה"
-                                          )
+                              val body =
+                                  bodyBytes
+                                      .toByteArray()
+                                      .toString(
+                                          StandardCharsets.UTF_8
                                       )
-                                  }
 
-                                  Log.d(
-                                      TAG,
-                                      "Response received successfully, chars=${body.length}"
+                              if (body.isBlank()) {
+
+                                  return@withContext Result.failure(
+                                      Exception(
+                                          "השרת החזיר תשובה ריקה"
+                                      )
                                   )
+                              }
 
+                              Log.d(
+                                  TAG,
+                                  "Response received: ${body.length} characters"
+                              )
+
+                              val parsed =
                                   try {
 
-                                      val parsed =
-                                          parse(body)
-
-                                      Log.d(
-                                          TAG,
-                                          "Parsed ${parsed.size} results"
-                                      )
-
-                                      Result.success(
-                                          parsed
-                                      )
+                                      parse(body)
 
                                   } catch (e: Exception) {
 
@@ -825,13 +985,22 @@ jobs:
                                           e
                                       )
 
-                                      Result.failure(
+                                      return@withContext Result.failure(
                                           Exception(
-                                              "השרת החזיר JSON לא תקין: ${e.message}"
+                                              "השרת החזיר JSON לא תקין: " +
+                                                  (e.message
+                                                      ?: "שגיאה בפענוח")
                                           )
                                       )
                                   }
-                              }
+
+                              Log.d(
+                                  TAG,
+                                  "Parsed ${parsed.size} results"
+                              )
+
+                              Result.success(parsed)
+                          }
 
                       } catch (e: Exception) {
 
@@ -861,8 +1030,9 @@ jobs:
                       JSONObject(json)
 
                   val results =
-                      root.optJSONArray("results")
-                          ?: JSONArray()
+                      root.optJSONArray(
+                          "results"
+                      ) ?: JSONArray()
 
                   val count =
                       minOf(
@@ -870,7 +1040,9 @@ jobs:
                           MAX_RESULTS
                       )
 
-                  for (i in 0 until count) {
+                  for (
+                      i in 0 until count
+                  ) {
 
                       val item =
                           results.optJSONObject(i)
@@ -878,14 +1050,25 @@ jobs:
 
                       val url =
                           item
-                              .optString("source_url")
+                              .optString(
+                                  "source_url"
+                              )
                               .ifBlank {
-                                  item.optString("url")
+                                  item.optString(
+                                      "url"
+                                  )
                               }
 
-                      if (url.isBlank()) {
+                      if (
+                          url.isBlank()
+                      ) {
                           continue
                       }
+
+                      /*
+                       * Ignore Base64 image fields completely.
+                       * We do not store them in SocialProfile.
+                       */
 
                       val rawScore =
                           item.optDouble(
@@ -894,30 +1077,39 @@ jobs:
                           )
 
                       val normalizedScore =
-                          if (rawScore > 1.0) {
+                          if (
+                              rawScore > 1.0
+                          ) {
                               rawScore / 100.0
                           } else {
                               rawScore
                           }
 
-                      val safeScore =
+                      val score =
                           normalizedScore
-                              .coerceIn(0.0, 1.0)
+                              .coerceIn(
+                                  0.0,
+                                  1.0
+                              )
                               .toFloat()
 
                       val title =
                           item
                               .optString("title")
                               .ifBlank {
-                                  item.optString("domain")
+                                  item.optString(
+                                      "domain"
+                                  )
                               }
 
                       list.add(
                           SocialProfile(
                               url = url,
-                              score = safeScore,
+                              score = score,
                               thumbnailUrl = null,
-                              platform = detect(url),
+                              platform = detect(
+                                  url
+                              ),
                               title = title
                           )
                       )
@@ -941,40 +1133,68 @@ jobs:
 
                   return when {
 
-                      lower.contains("instagram.com") ->
+                      lower.contains(
+                          "instagram.com"
+                      ) ->
                           "Instagram"
 
-                      lower.contains("tiktok.com") ->
+                      lower.contains(
+                          "tiktok.com"
+                      ) ->
                           "TikTok"
 
-                      lower.contains("facebook.com") ||
-                          lower.contains("fb.com") ->
+                      lower.contains(
+                          "facebook.com"
+                      ) ||
+                          lower.contains(
+                              "fb.com"
+                          ) ->
                           "Facebook"
 
-                      lower.contains("twitter.com") ||
-                          lower.contains("x.com") ->
+                      lower.contains(
+                          "twitter.com"
+                      ) ||
+                          lower.contains(
+                              "x.com"
+                          ) ->
                           "X"
 
-                      lower.contains("linkedin.com") ->
+                      lower.contains(
+                          "linkedin.com"
+                      ) ->
                           "LinkedIn"
 
-                      lower.contains("youtube.com") ->
+                      lower.contains(
+                          "youtube.com"
+                      ) ->
                           "YouTube"
 
-                      lower.contains("vk.com") ->
+                      lower.contains(
+                          "vk.com"
+                      ) ->
                           "VK"
 
-                      lower.contains("ok.ru") ->
+                      lower.contains(
+                          "ok.ru"
+                      ) ->
                           "OK"
 
-                      lower.contains("t.me") ||
-                          lower.contains("telegram") ->
+                      lower.contains(
+                          "t.me"
+                      ) ||
+                          lower.contains(
+                              "telegram"
+                          ) ->
                           "Telegram"
 
-                      lower.contains("pinterest.com") ->
+                      lower.contains(
+                          "pinterest.com"
+                      ) ->
                           "Pinterest"
 
-                      lower.contains("reddit.com") ->
+                      lower.contains(
+                          "reddit.com"
+                      ) ->
                           "Reddit"
 
                       else ->
@@ -983,18 +1203,34 @@ jobs:
               }
           }
 
-          fun SocialProfile.toJson(): JSONObject =
+          fun SocialProfile.toJson():
+              JSONObject =
               JSONObject().apply {
-                  put("url", url)
-                  put("score", score)
+
+                  put(
+                      "url",
+                      url
+                  )
+
+                  put(
+                      "score",
+                      score
+                  )
+
+                  /*
+                   * Always store NULL instead of a possible
+                   * Base64 image.
+                   */
                   put(
                       "thumbnailUrl",
-                      thumbnailUrl ?: JSONObject.NULL
+                      JSONObject.NULL
                   )
+
                   put(
                       "platform",
                       platform
                   )
+
                   put(
                       "title",
                       title
@@ -1013,11 +1249,14 @@ jobs:
                   val array =
                       JSONArray(json)
 
-                  for (
-                      i in 0 until minOf(
+                  val count =
+                      minOf(
                           array.length(),
                           50
                       )
+
+                  for (
+                      i in 0 until count
                   ) {
 
                       val obj =
@@ -1025,9 +1264,13 @@ jobs:
                               ?: continue
 
                       val url =
-                          obj.optString("url")
+                          obj.optString(
+                              "url"
+                          )
 
-                      if (url.isBlank()) {
+                      if (
+                          url.isBlank()
+                      ) {
                           continue
                       }
 
@@ -1043,35 +1286,29 @@ jobs:
                                   1f
                               )
 
-                      val thumbnail =
-                          if (
-                              obj.isNull(
-                                  "thumbnailUrl"
-                              )
-                          ) {
-                              null
-                          } else {
-                              obj.optString(
-                                  "thumbnailUrl",
-                                  ""
-                              ).ifBlank {
-                                  null
-                              }
-                          }
+                      val thumbnailUrl =
+                          null
+
+                      val platform =
+                          obj.optString(
+                              "platform",
+                              "Web"
+                          )
+
+                      val title =
+                          obj.optString(
+                              "title",
+                              ""
+                          )
 
                       list.add(
                           SocialProfile(
                               url = url,
                               score = score,
-                              thumbnailUrl = thumbnail,
-                              platform = obj.optString(
-                                  "platform",
-                                  "Web"
-                              ),
-                              title = obj.optString(
-                                  "title",
-                                  ""
-                              )
+                              thumbnailUrl =
+                                  thumbnailUrl,
+                              platform = platform,
+                              title = title
                           )
                       )
                   }
@@ -1106,9 +1343,12 @@ jobs:
           import androidx.compose.foundation.layout.Arrangement
           import androidx.compose.foundation.layout.Box
           import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.Spacer
           import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.height
           import androidx.compose.foundation.layout.padding
           import androidx.compose.material3.Button
+          import androidx.compose.material3.MaterialTheme
           import androidx.compose.material3.Text
           import androidx.compose.runtime.LaunchedEffect
           import androidx.compose.ui.Alignment
@@ -1118,17 +1358,20 @@ jobs:
           import com.google.accompanist.permissions.ExperimentalPermissionsApi
           import com.google.accompanist.permissions.isGranted
           import com.google.accompanist.permissions.rememberPermissionState
-          import androidx.compose.foundation.layout.Spacer
-          import androidx.compose.foundation.layout.height
-          import androidx.compose.material3.MaterialTheme
 
-          class MainActivity : ComponentActivity() {
+          class MainActivity :
+              ComponentActivity() {
 
-              @OptIn(ExperimentalPermissionsApi::class)
+              @OptIn(
+                  ExperimentalPermissionsApi::class
+              )
               override fun onCreate(
                   savedInstanceState: Bundle?
               ) {
-                  super.onCreate(savedInstanceState)
+
+                  super.onCreate(
+                      savedInstanceState
+                  )
 
                   setContent {
 
@@ -1139,11 +1382,14 @@ jobs:
                                   Manifest.permission.CAMERA
                               )
 
-                          LaunchedEffect(Unit) {
+                          LaunchedEffect(
+                              Unit
+                          ) {
 
                               if (
                                   !perm.status.isGranted
                               ) {
+
                                   perm.launchPermissionRequest()
                               }
                           }
@@ -1151,7 +1397,9 @@ jobs:
                           Box(
                               Modifier
                                   .fillMaxSize()
-                                  .background(NeoBg)
+                                  .background(
+                                      NeoBg
+                                  )
                           ) {
 
                               if (
@@ -1165,7 +1413,9 @@ jobs:
                                   Column(
                                       Modifier
                                           .fillMaxSize()
-                                          .padding(32.dp),
+                                          .padding(
+                                              32.dp
+                                          ),
                                       verticalArrangement =
                                           Arrangement.Center,
                                       horizontalAlignment =
@@ -1184,16 +1434,20 @@ jobs:
                                       )
 
                                       Spacer(
-                                          Modifier.height(16.dp)
+                                          Modifier.height(
+                                              16.dp
+                                          )
                                       )
 
                                       Button(
                                           onClick = {
-                                              perm
-                                                  .launchPermissionRequest()
+                                              perm.launchPermissionRequest()
                                           }
                                       ) {
-                                          Text("אשר הרשאה")
+
+                                          Text(
+                                              "אשר הרשאה"
+                                          )
                                       }
                                   }
                               }
@@ -1212,6 +1466,7 @@ jobs:
           import androidx.compose.material.icons.filled.CameraAlt
           import androidx.compose.material.icons.filled.History
           import androidx.compose.material.icons.filled.Settings
+          import androidx.compose.material3.Icon
           import androidx.compose.material3.NavigationBar
           import androidx.compose.material3.NavigationBarItem
           import androidx.compose.material3.NavigationBarItemDefaults
@@ -1248,7 +1503,9 @@ jobs:
 
               val db =
                   remember {
-                      AppDatabase.get(ctx)
+                      AppDatabase.get(
+                          ctx
+                      )
                   }
 
               val dao =
@@ -1268,16 +1525,19 @@ jobs:
 
               val items =
                   listOf(
+
                       NavItem(
                           "camera",
                           "מצלמה",
                           Icons.Default.CameraAlt
                       ),
+
                       NavItem(
                           "history",
                           "היסטוריה",
                           Icons.Default.History
                       ),
+
                       NavItem(
                           "settings",
                           "הגדרות",
@@ -1305,11 +1565,14 @@ jobs:
 
                               NavigationBarItem(
 
-                                  selected = selected,
+                                  selected =
+                                      selected,
 
                                   onClick = {
 
-                                      if (!selected) {
+                                      if (
+                                          !selected
+                                      ) {
 
                                           nav.navigate(
                                               item.route
@@ -1318,16 +1581,18 @@ jobs:
                                               popUpTo(
                                                   "camera"
                                               ) {
-                                                  inclusive = false
+                                                  inclusive =
+                                                      false
                                               }
 
-                                              launchSingleTop = true
+                                              launchSingleTop =
+                                                  true
                                           }
                                       }
                                   },
 
                                   icon = {
-                                      androidx.compose.material3.Icon(
+                                      Icon(
                                           item.icon,
                                           item.label
                                       )
@@ -1340,14 +1605,15 @@ jobs:
                                   },
 
                                   colors =
-                                      NavigationBarItemDefaults.colors(
-                                          selectedIconColor =
-                                              NeoCyan,
-                                          selectedTextColor =
-                                              NeoCyan,
-                                          indicatorColor =
-                                              NeoPurple
-                                      )
+                                      NavigationBarItemDefaults
+                                          .colors(
+                                              selectedIconColor =
+                                                  NeoCyan,
+                                              selectedTextColor =
+                                                  NeoCyan,
+                                              indicatorColor =
+                                                  NeoPurple
+                                          )
                               )
                           }
                       }
@@ -1358,14 +1624,20 @@ jobs:
                   NavHost(
                       navController = nav,
                       startDestination = "camera",
-                      modifier = Modifier.padding(pad)
+                      modifier =
+                          Modifier.padding(
+                              pad
+                          )
                   ) {
 
-                      composable("camera") {
+                      composable(
+                          "camera"
+                      ) {
 
                           CameraScreen(
                               dao
                           ) { id ->
+
                               nav.navigate(
                                   "results/$id"
                               )
@@ -1376,7 +1648,9 @@ jobs:
                           route = "results/{id}",
                           arguments =
                               listOf(
-                                  navArgument("id") {
+                                  navArgument(
+                                      "id"
+                                  ) {
                                       type =
                                           NavType.LongType
                                   }
@@ -1385,31 +1659,40 @@ jobs:
 
                           val id =
                               entry.arguments
-                                  ?.getLong("id")
+                                  ?.getLong(
+                                      "id"
+                                  )
                                   ?: 0L
 
                           ResultsScreen(
-                              dao,
-                              id
-                          ) {
-                              nav.navigate(
-                                  "camera"
-                              )
-                          }
+                              dao = dao,
+                              id = id,
+                              onBackToCamera = {
+                                  nav.navigate(
+                                      "camera"
+                                  )
+                              }
+                          )
                       }
 
-                      composable("history") {
+                      composable(
+                          "history"
+                      ) {
 
                           HistoryScreen(
                               dao
                           ) { id ->
+
                               nav.navigate(
                                   "results/$id"
                               )
                           }
                       }
 
-                      composable("settings") {
+                      composable(
+                          "settings"
+                      ) {
+
                           SettingsScreen()
                       }
                   }
@@ -1458,6 +1741,7 @@ jobs:
           import com.neoface.NeoBg
           import com.neoface.NeoCyan
           import com.neoface.NeoRed
+          import com.neoface.NeoSurface
           import com.neoface.Settings
           import com.neoface.data.SearchDao
           import com.neoface.data.SearchRecord
@@ -1484,24 +1768,34 @@ jobs:
 
               var busy by
                   remember {
-                      mutableStateOf(false)
+                      mutableStateOf(
+                          false
+                      )
                   }
 
               var status by
                   remember {
-                      mutableStateOf("")
+                      mutableStateOf(
+                          ""
+                      )
                   }
 
               var errorMessage by
                   remember {
-                      mutableStateOf<String?>(null)
+                      mutableStateOf<String?>(
+                          null
+                      )
                   }
 
               val apiKey =
-                  Settings.getApiKey(ctx)
+                  Settings.getApiKey(
+                      ctx
+                  )
 
               val baseUrl =
-                  Settings.getBaseUrl(ctx)
+                  Settings.getBaseUrl(
+                      ctx
+                  )
 
               val getContentLauncher =
                   rememberLauncherForActivityResult(
@@ -1510,10 +1804,13 @@ jobs:
                               .GetContent()
                   ) { uri ->
 
-                      if (uri != null) {
+                      if (
+                          uri != null
+                      ) {
 
                           busy = true
-                          status = "מעבד תמונה..."
+                          status =
+                              "מעבד תמונה..."
 
                           scope.launch {
 
@@ -1526,12 +1823,15 @@ jobs:
                                           1024
                                       )
 
-                                  if (bmp == null) {
+                                  if (
+                                      bmp == null
+                                  ) {
 
                                       errorMessage =
                                           "לא ניתן לקרוא את התמונה. נסה שוב."
 
-                                      busy = false
+                                      busy =
+                                          false
 
                                       return@launch
                                   }
@@ -1547,12 +1847,16 @@ jobs:
 
                                   val client =
                                       SocialSearchClient(
-                                          apiKey = apiKey,
-                                          baseUrl = baseUrl
+                                          apiKey =
+                                              apiKey,
+                                          baseUrl =
+                                              baseUrl
                                       )
 
                                   val apiResult =
-                                      client.search(bmp)
+                                      client.search(
+                                          bmp
+                                      )
 
                                   val json =
                                       try {
@@ -1562,16 +1866,17 @@ jobs:
 
                                                   apiResult
                                                       .getOrNull()
-                                                      ?.forEach {
+                                                      ?.forEach { profile ->
+
                                                           put(
-                                                              it.toJson()
+                                                              profile.toJson()
                                                           )
                                                       }
-
                                               }
                                               .toString()
 
                                       } catch (_: Exception) {
+
                                           "[]"
                                       }
 
@@ -1586,21 +1891,33 @@ jobs:
                                           .exceptionOrNull()
                                           ?.message
 
-                                  val rec =
+                                  val record =
                                       SearchRecord(
-                                          photoPath = localPath,
-                                          resultsJson = json,
-                                          resultCount = count,
-                                          error = err
+                                          photoPath =
+                                              localPath,
+                                          resultsJson =
+                                              json,
+                                          resultCount =
+                                              count,
+                                          error =
+                                              err
                                       )
 
                                   val id =
                                       withContext(
                                           Dispatchers.IO
                                       ) {
+
                                           try {
-                                              dao.insert(rec)
-                                          } catch (_: Exception) {
+
+                                              dao.insert(
+                                                  record
+                                              )
+
+                                          } catch (
+                                              e: Exception
+                                          ) {
+
                                               0L
                                           }
                                       }
@@ -1609,20 +1926,33 @@ jobs:
                                       Dispatchers.Main
                                   ) {
 
-                                      busy = false
-                                      status = ""
+                                      busy =
+                                          false
 
-                                      if (id > 0) {
-                                          onComplete(id)
+                                      status =
+                                          ""
+
+                                      if (
+                                          id > 0
+                                      ) {
+
+                                          onComplete(
+                                              id
+                                          )
+
                                       } else {
+
                                           errorMessage =
                                               "שגיאה בשמירת הנתונים"
                                       }
                                   }
 
-                              } catch (e: Exception) {
+                              } catch (
+                                  e: Exception
+                              ) {
 
-                                  busy = false
+                                  busy =
+                                      false
 
                                   errorMessage =
                                       "שגיאה: ${
@@ -1637,13 +1967,17 @@ jobs:
               Box(
                   Modifier
                       .fillMaxSize()
-                      .background(NeoBg)
+                      .background(
+                          NeoBg
+                      )
               ) {
 
                   Column(
                       Modifier
                           .fillMaxSize()
-                          .padding(32.dp),
+                          .padding(
+                              32.dp
+                          ),
                       verticalArrangement =
                           Arrangement.Center,
                       horizontalAlignment =
@@ -1652,7 +1986,8 @@ jobs:
 
                       Text(
                           "NeoFace",
-                          color = NeoCyan,
+                          color =
+                              NeoCyan,
                           style =
                               MaterialTheme
                                   .typography
@@ -1662,12 +1997,15 @@ jobs:
                       )
 
                       Spacer(
-                          Modifier.height(8.dp)
+                          Modifier.height(
+                              8.dp
+                          )
                       )
 
                       Text(
                           "חיפוש פנים הפוך",
-                          color = Color.Gray,
+                          color =
+                              Color.Gray,
                           style =
                               MaterialTheme
                                   .typography
@@ -1675,14 +2013,19 @@ jobs:
                       )
 
                       Spacer(
-                          Modifier.height(48.dp)
+                          Modifier.height(
+                              48.dp
+                          )
                       )
 
-                      if (apiKey.isBlank()) {
+                      if (
+                          apiKey.isBlank()
+                      ) {
 
                           Text(
                               "⚠️ חסר מפתח API. עבור להגדרות.",
-                              color = NeoRed,
+                              color =
+                                  NeoRed,
                               style =
                                   MaterialTheme
                                       .typography
@@ -1690,11 +2033,14 @@ jobs:
                           )
 
                           Spacer(
-                              Modifier.height(16.dp)
+                              Modifier.height(
+                                  16.dp
+                              )
                           )
                       }
 
                       FloatingActionButton(
+
                           onClick = {
 
                               if (
@@ -1707,9 +2053,15 @@ jobs:
                                   "image/*"
                               )
                           },
+
                           modifier =
-                              Modifier.size(120.dp),
-                          shape = CircleShape,
+                              Modifier.size(
+                                  120.dp
+                              ),
+
+                          shape =
+                              CircleShape,
+
                           containerColor =
                               NeoCyan
                       ) {
@@ -1717,19 +2069,25 @@ jobs:
                           Icon(
                               Icons.Default.CameraAlt,
                               "בחר תמונה",
-                              tint = NeoBg,
+                              tint =
+                                  NeoBg,
                               modifier =
-                                  Modifier.size(56.dp)
+                                  Modifier.size(
+                                      56.dp
+                                  )
                           )
                       }
 
                       Spacer(
-                          Modifier.height(24.dp)
+                          Modifier.height(
+                              24.dp
+                          )
                       )
 
                       Text(
                           "בחר תמונה מהגלריה או מהמצלמה",
-                          color = NeoCyan,
+                          color =
+                              NeoCyan,
                           style =
                               MaterialTheme
                                   .typography
@@ -1737,7 +2095,9 @@ jobs:
                       )
                   }
 
-                  if (busy) {
+                  if (
+                      busy
+                  ) {
 
                       Box(
                           Modifier
@@ -1758,16 +2118,20 @@ jobs:
                           ) {
 
                               CircularProgressIndicator(
-                                  color = NeoCyan
+                                  color =
+                                      NeoCyan
                               )
 
                               Spacer(
-                                  Modifier.height(16.dp)
+                                  Modifier.height(
+                                      16.dp
+                                  )
                               )
 
                               Text(
                                   status,
-                                  color = NeoCyan,
+                                  color =
+                                      NeoCyan,
                                   style =
                                       MaterialTheme
                                           .typography
@@ -1787,20 +2151,23 @@ jobs:
                   AlertDialog(
 
                       onDismissRequest = {
-                          errorMessage = null
+                          errorMessage =
+                              null
                       },
 
                       title = {
                           Text(
                               "שגיאה",
-                              color = NeoRed
+                              color =
+                                  NeoRed
                           )
                       },
 
                       text = {
                           Text(
                               errorMessage!!,
-                              color = Color.White
+                              color =
+                                  Color.White
                           )
                       },
 
@@ -1808,18 +2175,21 @@ jobs:
 
                           TextButton(
                               onClick = {
-                                  errorMessage = null
+                                  errorMessage =
+                                      null
                               }
                           ) {
+
                               Text(
                                   "אישור",
-                                  color = NeoCyan
+                                  color =
+                                      NeoCyan
                               )
                           }
                       },
 
                       containerColor =
-                          com.neoface.NeoSurface
+                          NeoSurface
                   )
               }
           }
@@ -1836,7 +2206,6 @@ jobs:
           import androidx.compose.foundation.Image
           import androidx.compose.foundation.background
           import androidx.compose.foundation.clickable
-          import androidx.compose.foundation.layout.Arrangement
           import androidx.compose.foundation.layout.Box
           import androidx.compose.foundation.layout.Column
           import androidx.compose.foundation.layout.Row
@@ -1917,28 +2286,37 @@ jobs:
 
               var record by
                   remember {
-                      mutableStateOf<SearchRecord?>(null)
+                      mutableStateOf<SearchRecord?>(
+                          null
+                      )
                   }
 
               var profiles by
                   remember {
-                      mutableStateOf<List<SocialProfile>>(
+                      mutableStateOf<
+                          List<SocialProfile>
+                          >(
                           emptyList()
                       )
                   }
 
-              LaunchedEffect(id) {
+              LaunchedEffect(
+                  id
+              ) {
 
-                  val r =
+                  val result =
                       withContext(
                           Dispatchers.IO
                       ) {
                           dao.get(id)
                       }
 
-                  record = r
+                  record =
+                      result
 
-                  if (r != null) {
+                  if (
+                      result != null
+                  ) {
 
                       profiles =
                           withContext(
@@ -1946,10 +2324,14 @@ jobs:
                           ) {
 
                               try {
+
                                   parseProfiles(
-                                      r.resultsJson
+                                      result.resultsJson
                                   )
-                              } catch (e: Exception) {
+
+                              } catch (
+                                  e: Exception
+                              ) {
 
                                   Log.e(
                                       "NeoFace",
@@ -1966,18 +2348,23 @@ jobs:
               val rec =
                   record
 
-              if (rec == null) {
+              if (
+                  rec == null
+              ) {
 
                   Box(
                       Modifier
                           .fillMaxSize()
-                          .background(NeoBg),
+                          .background(
+                              NeoBg
+                          ),
                       contentAlignment =
                           Alignment.Center
                   ) {
 
                       CircularProgressIndicator(
-                          color = NeoCyan
+                          color =
+                              NeoCyan
                       )
                   }
 
@@ -1987,31 +2374,39 @@ jobs:
               Column(
                   Modifier
                       .fillMaxSize()
-                      .background(NeoBg)
+                      .background(
+                          NeoBg
+                      )
               ) {
 
                   Surface(
-                      color = NeoSurface,
+                      color =
+                          NeoSurface,
                       modifier =
                           Modifier.fillMaxWidth()
                   ) {
 
                       Row(
-                          Modifier.padding(16.dp),
+                          Modifier.padding(
+                              16.dp
+                          ),
                           verticalAlignment =
                               Alignment.CenterVertically
                       ) {
 
                           val bmp by
                               produceState<Bitmap?>(
-                                  initialValue = null,
-                                  key1 = rec.id
+                                  initialValue =
+                                      null,
+                                  key1 =
+                                      rec.id
                               ) {
 
                                   value =
                                       withContext(
                                           Dispatchers.IO
                                       ) {
+
                                           decodeFileScaled(
                                               rec.photoPath,
                                               200
@@ -2019,7 +2414,9 @@ jobs:
                                       }
                               }
 
-                          if (bmp != null) {
+                          if (
+                              bmp != null
+                          ) {
 
                               Image(
                                   bitmap =
@@ -2029,7 +2426,9 @@ jobs:
                                       null,
                                   modifier =
                                       Modifier
-                                          .size(72.dp)
+                                          .size(
+                                              72.dp
+                                          )
                                           .clip(
                                               CircleShape
                                           ),
@@ -2045,12 +2444,15 @@ jobs:
                           }
 
                           Column(
-                              Modifier.weight(1f)
+                              Modifier.weight(
+                                  1f
+                              )
                           ) {
 
                               Text(
                                   "תוצאות חיפוש",
-                                  color = NeoCyan,
+                                  color =
+                                      NeoCyan,
                                   style =
                                       MaterialTheme
                                           .typography
@@ -2098,7 +2500,9 @@ jobs:
                                       withContext(
                                           Dispatchers.IO
                                       ) {
-                                          dao.delete(rec)
+                                          dao.delete(
+                                              rec
+                                          )
                                       }
 
                                       onBackToCamera()
@@ -2110,22 +2514,30 @@ jobs:
                               Icon(
                                   Icons.Default.Delete,
                                   "מחק",
-                                  tint = NeoRed
+                                  tint =
+                                      NeoRed
                               )
                           }
                       }
                   }
 
-                  if (rec.error != null) {
+                  if (
+                      rec.error != null
+                  ) {
 
                       Surface(
+
                           Modifier
                               .fillMaxWidth()
-                              .padding(16.dp),
+                              .padding(
+                                  16.dp
+                              ),
+
                           color =
                               NeoRed.copy(
                                   alpha = 0.15f
                               ),
+
                           shape =
                               RoundedCornerShape(
                                   12.dp
@@ -2140,7 +2552,8 @@ jobs:
 
                               Text(
                                   "שגיאה בחיפוש",
-                                  color = NeoRed,
+                                  color =
+                                      NeoRed,
                                   fontWeight =
                                       FontWeight.Bold
                               )
@@ -2171,7 +2584,9 @@ jobs:
 
                       Box(
                           Modifier
-                              .weight(1f)
+                              .weight(
+                                  1f
+                              )
                               .fillMaxWidth(),
                           contentAlignment =
                               Alignment.Center
@@ -2189,7 +2604,8 @@ jobs:
                               Icon(
                                   Icons.Default.SearchOff,
                                   null,
-                                  tint = NeoCyan,
+                                  tint =
+                                      NeoCyan,
                                   modifier =
                                       Modifier.size(
                                           72.dp
@@ -2227,8 +2643,11 @@ jobs:
                   } else {
 
                       LazyColumn(
+
                           Modifier
-                              .weight(1f)
+                              .weight(
+                                  1f
+                              )
                               .fillMaxWidth()
                               .padding(
                                   horizontal = 12.dp
@@ -2240,19 +2659,21 @@ jobs:
                               key = {
                                   it.url
                               }
-                          ) { p ->
+                          ) { profile ->
 
                               ProfileCard(
-                                  p
+                                  profile
                               ) {
+
                                   openUrl(
                                       ctx,
-                                      p.url
+                                      profile.url
                                   )
                               }
                           }
 
                           item {
+
                               Spacer(
                                   Modifier.height(
                                       16.dp
@@ -2263,12 +2684,17 @@ jobs:
                   }
 
                   Button(
+
                       onClick =
                           onBackToCamera,
+
                       modifier =
                           Modifier
                               .fillMaxWidth()
-                              .padding(16.dp),
+                              .padding(
+                                  16.dp
+                              ),
+
                       colors =
                           ButtonDefaults
                               .buttonColors(
@@ -2283,10 +2709,14 @@ jobs:
                       )
 
                       Spacer(
-                          Modifier.width(8.dp)
+                          Modifier.width(
+                              8.dp
+                          )
                       )
 
-                      Text("חפש שוב")
+                      Text(
+                          "חפש שוב"
+                      )
                   }
               }
           }
@@ -2314,24 +2744,32 @@ jobs:
                               onClick()
                           },
 
-                  color = NeoSurface
+                  color =
+                      NeoSurface
               ) {
 
                   Row(
-                      Modifier.padding(12.dp),
+                      Modifier.padding(
+                          12.dp
+                      ),
                       verticalAlignment =
                           Alignment.CenterVertically
                   ) {
 
                       Surface(
+
                           Modifier
-                              .size(64.dp)
+                              .size(
+                                  64.dp
+                              )
                               .clip(
                                   RoundedCornerShape(
                                       10.dp
                                   )
                               ),
-                          color = NeoBg
+
+                          color =
+                              NeoBg
                       ) {
 
                           Box(
@@ -2342,17 +2780,22 @@ jobs:
                               Icon(
                                   Icons.Default.Person,
                                   null,
-                                  tint = NeoCyan
+                                  tint =
+                                      NeoCyan
                               )
                           }
                       }
 
                       Spacer(
-                          Modifier.width(12.dp)
+                          Modifier.width(
+                              12.dp
+                          )
                       )
 
                       Column(
-                          Modifier.weight(1f)
+                          Modifier.weight(
+                              1f
+                          )
                       ) {
 
                           Row(
@@ -2364,7 +2807,8 @@ jobs:
                                   platformEmoji(
                                       p.platform
                                   ),
-                                  fontSize = 18.sp
+                                  fontSize =
+                                      18.sp
                               )
 
                               Spacer(
@@ -2375,7 +2819,8 @@ jobs:
 
                               Text(
                                   p.platform,
-                                  color = NeoCyan,
+                                  color =
+                                      NeoCyan,
                                   style =
                                       MaterialTheme
                                           .typography
@@ -2400,7 +2845,7 @@ jobs:
                                       )}%",
                                       color =
                                           if (
-                                              p.score > 0.7
+                                              p.score > 0.7f
                                           ) {
                                               NeoGreen
                                           } else {
@@ -2426,7 +2871,8 @@ jobs:
                                       MaterialTheme
                                           .typography
                                           .bodyMedium,
-                                  maxLines = 1
+                                  maxLines =
+                                      1
                               )
                           }
 
@@ -2438,14 +2884,16 @@ jobs:
                                   MaterialTheme
                                       .typography
                                       .bodySmall,
-                              maxLines = 1
+                              maxLines =
+                                  1
                           )
                       }
 
                       Icon(
                           Icons.Default.OpenInNew,
                           null,
-                          tint = NeoCyan
+                          tint =
+                              NeoCyan
                       )
                   }
               }
@@ -2453,22 +2901,44 @@ jobs:
 
           private fun platformEmoji(
               p: String
-          ) =
-              when (p) {
+          ): String {
 
-                  "Instagram" -> "📷"
-                  "TikTok" -> "🎵"
-                  "Facebook" -> "📘"
-                  "X" -> "🐦"
-                  "LinkedIn" -> "💼"
-                  "YouTube" -> "▶️"
-                  "VK" -> "🇷🇺"
-                  "Telegram" -> "✈️"
-                  "Pinterest" -> "📌"
-                  "Reddit" -> "👽"
+              return when (p) {
 
-                  else -> "🌐"
+                  "Instagram" ->
+                      "📷"
+
+                  "TikTok" ->
+                      "🎵"
+
+                  "Facebook" ->
+                      "📘"
+
+                  "X" ->
+                      "🐦"
+
+                  "LinkedIn" ->
+                      "💼"
+
+                  "YouTube" ->
+                      "▶️"
+
+                  "VK" ->
+                      "🇷🇺"
+
+                  "Telegram" ->
+                      "✈️"
+
+                  "Pinterest" ->
+                      "📌"
+
+                  "Reddit" ->
+                      "👽"
+
+                  else ->
+                      "🌐"
               }
+          }
 
           private fun openUrl(
               ctx: Context,
@@ -2477,11 +2947,13 @@ jobs:
 
               try {
 
-                  val parsed =
-                      Uri.parse(url)
+                  val uri =
+                      Uri.parse(
+                          url
+                      )
 
                   val scheme =
-                      parsed.scheme
+                      uri.scheme
                           ?.lowercase()
 
                   if (
@@ -2494,8 +2966,9 @@ jobs:
                   val intent =
                       Intent(
                           Intent.ACTION_VIEW,
-                          parsed
+                          uri
                       ).apply {
+
                           addFlags(
                               Intent.FLAG_ACTIVITY_NEW_TASK
                           )
@@ -2505,7 +2978,9 @@ jobs:
                       intent
                   )
 
-              } catch (e: Exception) {
+              } catch (
+                  e: Exception
+              ) {
 
                   Log.e(
                       "NeoFace",
@@ -2546,6 +3021,7 @@ jobs:
           import androidx.compose.runtime.getValue
           import androidx.compose.runtime.produceState
           import androidx.compose.runtime.rememberCoroutineScope
+          import androidx.compose.runtime.collectAsState
           import androidx.compose.ui.Alignment
           import androidx.compose.ui.Modifier
           import androidx.compose.ui.draw.clip
@@ -2585,24 +3061,30 @@ jobs:
               Column(
                   Modifier
                       .fillMaxSize()
-                      .background(NeoBg)
+                      .background(
+                          NeoBg
+                      )
               ) {
 
                   Surface(
-                      color = NeoSurface,
+                      color =
+                          NeoSurface,
                       modifier =
                           Modifier.fillMaxWidth()
                   ) {
 
                       Row(
-                          Modifier.padding(16.dp),
+                          Modifier.padding(
+                              16.dp
+                          ),
                           verticalAlignment =
                               Alignment.CenterVertically
                       ) {
 
                           Text(
                               "היסטוריית חיפושים",
-                              color = NeoCyan,
+                              color =
+                                  NeoCyan,
                               style =
                                   MaterialTheme
                                       .typography
@@ -2610,17 +3092,22 @@ jobs:
                               fontWeight =
                                   FontWeight.Bold,
                               modifier =
-                                  Modifier.weight(1f)
+                                  Modifier.weight(
+                                      1f
+                                  )
                           )
 
                           Text(
                               "${items.size}",
-                              color = NeoCyan
+                              color =
+                                  NeoCyan
                           )
                       }
                   }
 
-                  if (items.isEmpty()) {
+                  if (
+                      items.isEmpty()
+                  ) {
 
                       Box(
                           Modifier.fillMaxSize(),
@@ -2630,7 +3117,8 @@ jobs:
 
                           Text(
                               "אין חיפושים שמורים עדיין",
-                              color = Color.Gray
+                              color =
+                                  Color.Gray
                           )
                       }
 
@@ -2641,25 +3129,33 @@ jobs:
                       ) {
 
                           items(
-                              items,
+                              items = items,
                               key = {
                                   it.id
                               }
-                          ) { rec ->
+                          ) { record ->
 
                               HistoryRow(
-                                  rec,
-                                  {
+                                  rec =
+                                      record,
+
+                                  onClick = {
                                       onOpen(
-                                          rec.id
+                                          record.id
                                       )
                                   },
-                                  {
+
+                                  onDelete = {
 
                                       scope.launch {
-                                          dao.delete(
-                                              rec
-                                          )
+
+                                          withContext(
+                                              Dispatchers.IO
+                                          ) {
+                                              dao.delete(
+                                                  record
+                                              )
+                                          }
                                       }
                                   }
                               )
@@ -2677,33 +3173,41 @@ jobs:
           ) {
 
               Surface(
-                  Modifier
-                      .fillMaxWidth()
-                      .padding(
-                          horizontal = 12.dp,
-                          vertical = 4.dp
-                      )
-                      .clip(
-                          RoundedCornerShape(
-                              12.dp
+
+                  modifier =
+                      Modifier
+                          .fillMaxWidth()
+                          .padding(
+                              horizontal = 12.dp,
+                              vertical = 4.dp
                           )
-                      )
-                      .clickable {
-                          onClick()
-                      },
-                  color = NeoSurface
+                          .clip(
+                              RoundedCornerShape(
+                                  12.dp
+                              )
+                          )
+                          .clickable {
+                              onClick()
+                          },
+
+                  color =
+                      NeoSurface
               ) {
 
                   Row(
-                      Modifier.padding(12.dp),
+                      Modifier.padding(
+                          12.dp
+                      ),
                       verticalAlignment =
                           Alignment.CenterVertically
                   ) {
 
                       val bmp by
                           produceState<Bitmap?>(
-                              initialValue = null,
-                              key1 = rec.id
+                              initialValue =
+                                  null,
+                              key1 =
+                                  rec.id
                           ) {
 
                               value =
@@ -2718,7 +3222,9 @@ jobs:
                                   }
                           }
 
-                      if (bmp != null) {
+                      if (
+                          bmp != null
+                      ) {
 
                           Image(
                               bitmap =
@@ -2728,7 +3234,9 @@ jobs:
                                   null,
                               modifier =
                                   Modifier
-                                      .size(56.dp)
+                                      .size(
+                                          56.dp
+                                      )
                                       .clip(
                                           RoundedCornerShape(
                                               10.dp
@@ -2742,7 +3250,9 @@ jobs:
 
                           Box(
                               Modifier
-                                  .size(56.dp)
+                                  .size(
+                                      56.dp
+                                  )
                                   .clip(
                                       RoundedCornerShape(
                                           10.dp
@@ -2755,11 +3265,15 @@ jobs:
                       }
 
                       Spacer(
-                          Modifier.width(12.dp)
+                          Modifier.width(
+                              12.dp
+                          )
                       )
 
                       Column(
-                          Modifier.weight(1f)
+                          Modifier.weight(
+                              1f
+                          )
                       ) {
 
                           Text(
@@ -2770,6 +3284,7 @@ jobs:
                               } else {
                                   "${rec.resultCount} פרופילים"
                               },
+
                               color =
                                   if (
                                       rec.error != null
@@ -2778,6 +3293,7 @@ jobs:
                                   } else {
                                       NeoCyan
                                   },
+
                               fontWeight =
                                   FontWeight.Bold
                           )
@@ -2801,13 +3317,15 @@ jobs:
                       }
 
                       IconButton(
-                          onClick = onDelete
+                          onClick =
+                              onDelete
                       ) {
 
                           Icon(
                               Icons.Default.Delete,
                               "מחק",
-                              tint = NeoRed
+                              tint =
+                                  NeoRed
                           )
                       }
                   }
@@ -2826,6 +3344,7 @@ jobs:
           import androidx.compose.foundation.layout.fillMaxWidth
           import androidx.compose.foundation.layout.height
           import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.width
           import androidx.compose.foundation.rememberScrollState
           import androidx.compose.foundation.verticalScroll
           import androidx.compose.material.icons.Icons
@@ -2836,6 +3355,7 @@ jobs:
           import androidx.compose.material3.Icon
           import androidx.compose.material3.OutlinedButton
           import androidx.compose.material3.OutlinedTextField
+          import androidx.compose.material3.MaterialTheme
           import androidx.compose.material3.Surface
           import androidx.compose.material3.Text
           import androidx.compose.runtime.Composable
@@ -2865,96 +3385,151 @@ jobs:
               var apiKey by
                   remember {
                       mutableStateOf(
-                          Settings.getApiKey(ctx)
+                          Settings.getApiKey(
+                              ctx
+                          )
                       )
                   }
 
               var baseUrl by
                   remember {
                       mutableStateOf(
-                          Settings.getBaseUrl(ctx)
+                          Settings.getBaseUrl(
+                              ctx
+                          )
                       )
                   }
 
               var saved by
                   remember {
-                      mutableStateOf(false)
+                      mutableStateOf(
+                          false
+                      )
                   }
 
               Column(
+
                   Modifier
                       .fillMaxWidth()
-                      .background(NeoBg)
+                      .background(
+                          NeoBg
+                      )
                       .verticalScroll(
                           rememberScrollState()
                       )
-                      .padding(16.dp)
+                      .padding(
+                          16.dp
+                      )
               ) {
 
                   Text(
                       "הגדרות NeoFace",
-                      color = NeoCyan,
+                      color =
+                          NeoCyan,
+                      style =
+                          MaterialTheme
+                              .typography
+                              .headlineSmall,
                       fontWeight =
                           FontWeight.Bold
                   )
 
                   Spacer(
-                      Modifier.height(16.dp)
+                      Modifier.height(
+                          16.dp
+                      )
                   )
 
                   Text(
                       "מפתח FaceSeek API",
-                      color = Color.White
+                      color =
+                          Color.White,
+                      style =
+                          MaterialTheme
+                              .typography
+                              .titleMedium
                   )
 
                   Spacer(
-                      Modifier.height(4.dp)
+                      Modifier.height(
+                          4.dp
+                      )
                   )
 
                   Text(
                       "מפתח מ-faceseek.online (מתחיל ב-fsk_)",
-                      color = Color.Gray
+                      color =
+                          Color.Gray,
+                      style =
+                          MaterialTheme
+                              .typography
+                              .bodySmall
                   )
 
                   Spacer(
-                      Modifier.height(8.dp)
+                      Modifier.height(
+                          8.dp
+                      )
                   )
 
                   OutlinedTextField(
-                      value = apiKey,
+
+                      value =
+                          apiKey,
+
                       onValueChange = {
                           apiKey = it
                           saved = false
                       },
+
                       label = {
-                          Text("API Key")
+                          Text(
+                              "API Key"
+                          )
                       },
+
                       placeholder = {
-                          Text("fsk_...")
+                          Text(
+                              "fsk_..."
+                          )
                       },
+
                       modifier =
                           Modifier.fillMaxWidth(),
-                      singleLine = true
+
+                      singleLine =
+                          true
                   )
 
                   Spacer(
-                      Modifier.height(8.dp)
+                      Modifier.height(
+                          8.dp
+                      )
                   )
 
                   OutlinedButton(
+
                       onClick = {
 
-                          ctx.startActivity(
-                              Intent(
-                                  Intent.ACTION_VIEW,
-                                  Uri.parse(
-                                      "https://www.faceseek.online"
+                          try {
+
+                              ctx.startActivity(
+                                  Intent(
+                                      Intent.ACTION_VIEW,
+                                      Uri.parse(
+                                          "https://www.faceseek.online"
+                                      )
+                                  ).addFlags(
+                                      Intent.FLAG_ACTIVITY_NEW_TASK
                                   )
-                              ).addFlags(
-                                  Intent.FLAG_ACTIVITY_NEW_TASK
                               )
-                          )
+
+                          } catch (
+                              _: Exception
+                          ) {
+                          }
                       },
+
                       modifier =
                           Modifier.fillMaxWidth()
                   ) {
@@ -2962,11 +3537,14 @@ jobs:
                       Icon(
                           Icons.Default.OpenInNew,
                           null,
-                          tint = NeoCyan
+                          tint =
+                              NeoCyan
                       )
 
                       Spacer(
-                          Modifier.width(8.dp)
+                          Modifier.width(
+                              8.dp
+                          )
                       )
 
                       Text(
@@ -2975,39 +3553,58 @@ jobs:
                   }
 
                   Spacer(
-                      Modifier.height(24.dp)
+                      Modifier.height(
+                          24.dp
+                      )
                   )
 
                   Text(
                       "כתובת שרת (מתקדם)",
-                      color = Color.White,
-                      fontWeight =
-                          FontWeight.Bold
+                      color =
+                          Color.White,
+                      style =
+                          MaterialTheme
+                              .typography
+                              .titleMedium
                   )
 
                   Spacer(
-                      Modifier.height(8.dp)
+                      Modifier.height(
+                          8.dp
+                      )
                   )
 
                   OutlinedTextField(
-                      value = baseUrl,
+
+                      value =
+                          baseUrl,
+
                       onValueChange = {
                           baseUrl = it
                           saved = false
                       },
+
                       label = {
-                          Text("Base URL")
+                          Text(
+                              "Base URL"
+                          )
                       },
+
                       modifier =
                           Modifier.fillMaxWidth(),
-                      singleLine = true
+
+                      singleLine =
+                          true
                   )
 
                   Spacer(
-                      Modifier.height(24.dp)
+                      Modifier.height(
+                          24.dp
+                      )
                   )
 
                   Button(
+
                       onClick = {
 
                           Settings.setApiKey(
@@ -3022,8 +3619,10 @@ jobs:
 
                           saved = true
                       },
+
                       modifier =
                           Modifier.fillMaxWidth(),
+
                       colors =
                           ButtonDefaults
                               .buttonColors(
@@ -3038,7 +3637,9 @@ jobs:
                       )
 
                       Spacer(
-                          Modifier.width(8.dp)
+                          Modifier.width(
+                              8.dp
+                          )
                       )
 
                       Text(
@@ -3046,95 +3647,139 @@ jobs:
                       )
                   }
 
-                  if (saved) {
+                  if (
+                      saved
+                  ) {
 
                       Spacer(
-                          Modifier.height(8.dp)
+                          Modifier.height(
+                              8.dp
+                          )
                       )
 
                       Text(
                           "✓ נשמר בהצלחה",
-                          color = NeoGreen
+                          color =
+                              NeoGreen
                       )
                   }
 
                   Spacer(
-                      Modifier.height(32.dp)
+                      Modifier.height(
+                          32.dp
+                      )
                   )
 
                   Surface(
-                      color = NeoSurface,
+                      color =
+                          NeoSurface,
                       shape =
-                          androidx.compose.material3
-                              .MaterialTheme
+                          MaterialTheme
                               .shapes
                               .large
                   ) {
 
                       Column(
-                          Modifier.padding(16.dp)
+                          Modifier.padding(
+                              16.dp
+                          )
                       ) {
 
                           Text(
                               "איך זה עובד",
-                              color = NeoCyan
+                              color =
+                                  NeoCyan,
+                              style =
+                                  MaterialTheme
+                                      .typography
+                                      .titleMedium
                           )
 
                           Spacer(
-                              Modifier.height(8.dp)
+                              Modifier.height(
+                                  8.dp
+                              )
                           )
 
                           Text(
                               "NeoFace שולחת את תמונת הפנים שלך לשרת FaceSeek, " +
                                   "שמחפש התאמות באתרים ציבוריים ברשת. " +
                                   "התוצאות מוצגות כאחוז התאמה עם קישור לפרופיל המקורי.",
-                              color = Color.White
+                              color =
+                                  Color.White,
+                              style =
+                                  MaterialTheme
+                                      .typography
+                                      .bodySmall
                           )
                       }
                   }
 
                   Spacer(
-                      Modifier.height(16.dp)
+                      Modifier.height(
+                          16.dp
+                      )
                   )
 
                   Surface(
-                      color = NeoSurface,
+                      color =
+                          NeoSurface,
                       shape =
-                          androidx.compose.material3
-                              .MaterialTheme
+                          MaterialTheme
                               .shapes
                               .large
                   ) {
 
                       Column(
-                          Modifier.padding(16.dp)
+                          Modifier.padding(
+                              16.dp
+                          )
                       ) {
 
                           Text(
                               "⚠️ אזהרה משפטית",
-                              color = NeoCyan
+                              color =
+                                  NeoCyan,
+                              style =
+                                  MaterialTheme
+                                      .typography
+                                      .titleMedium
                           )
 
                           Spacer(
-                              Modifier.height(8.dp)
+                              Modifier.height(
+                                  8.dp
+                              )
                           )
 
                           Text(
-                              "שימוש בחיפוש פנים הפוך כפוף לחוקי פרטיות (GDPR, CCPA וכו'). " +
-                                  "אין להשתמש באפליקציה למטרות הטרדה, סטוקינג או כל שימוש בלתי חוקי. " +
-                                  "המשתמש אחראי באופן בלעדי לכל שימוש.",
-                              color = Color.White
+                              "שימוש בחיפוש פנים כפוף לחוקי פרטיות ולתנאי השירות של המקורות וה-API. " +
+                                  "אין להשתמש באפליקציה למטרות הטרדה, סטוקינג או שימוש בלתי חוקי. " +
+                                  "המשתמש אחראי לשימוש שלו באפליקציה.",
+                              color =
+                                  Color.White,
+                              style =
+                                  MaterialTheme
+                                      .typography
+                                      .bodySmall
                           )
                       }
                   }
 
                   Spacer(
-                      Modifier.height(32.dp)
+                      Modifier.height(
+                          32.dp
+                      )
                   )
 
                   Text(
                       "NeoFace v1.0.1",
-                      color = Color.Gray,
+                      color =
+                          Color.Gray,
+                      style =
+                          MaterialTheme
+                              .typography
+                              .bodySmall,
                       modifier =
                           Modifier.align(
                               Alignment.CenterHorizontally
@@ -3158,33 +3803,35 @@ jobs:
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: NeoFace v1.0.${{ github.run_number }}
+
           body: |
             ## NeoFace v1.0.${{ github.run_number }}
 
-            אפליקציית חיפוש פנים הפוך.
+            אפליקציית NeoFace.
 
             ### התקנה
 
-            1. הורד את `app-debug.apk`
-            2. אפשר "התקנה ממקורות לא ידועים" בהגדרות המכשיר
-            3. התקן ופתח
-            4. היכנס להגדרות
-            5. הזן מפתח FaceSeek API
-            6. התחל לחפש
-
-            ### קבלת מפתח
-
-            הירשם ב-https://www.faceseek.online
+            1. הורד את app-debug.apk
+            2. אפשר התקנה ממקורות לא ידועים במכשיר
+            3. התקן את האפליקציה
+            4. פתח את הגדרות האפליקציה
+            5. הזן את מפתח ה-API
+            6. בצע חיפוש
 
             ### תיקונים בגרסה הזו
 
             - טיפול בטוח יותר בתשובת השרת
-            - הגבלת response ל-5MB
+            - הגבלת גודל response
+            - קריאת response בצורה מדורגת במקום טעינה בלתי מוגבלת לזיכרון
+            - התעלמות מנתוני Base64 של תמונות
+            - הגבלת מספר תוצאות ל-50
             - parsing מוגן יותר
-            - הגבלת תוצאות ל-50
-            - מניעת URLs לא תקינים
-            - טעינת תמונות בצורה יעילה יותר
-            - תיקון מבנה מסך התוצאות
-        files: app/build/outputs/apk/debug/app-debug.apk
+            - הגנה על פתיחת URLs
+            - טעינת תמונות מקומית בצורה מוקטנת
+            - תיקון Layout של מסך התוצאות
+            - טיפול טוב יותר בשגיאות HTTP ו-JSON
+
+          files: app/build/outputs/apk/debug/app-debug.apk
+
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
