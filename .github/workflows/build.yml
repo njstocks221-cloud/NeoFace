@@ -84,7 +84,7 @@ jobs:
               defaultConfig {
                   applicationId "com.neoface"
                   minSdk 24
-                  targetSdk 33 // הורדנו מ-34 ל-33 כדי למנוע בעיות תאימות באנדרואיד 16
+                  targetSdk 33
                   versionCode 1
                   versionName "1.0.0"
               }
@@ -593,6 +593,9 @@ jobs:
           import android.graphics.Bitmap
           import android.graphics.BitmapFactory
           import androidx.camera.core.*
+          import androidx.camera.core.resolutionselector.AspectRatioStrategy
+          import androidx.camera.core.resolutionselector.ResolutionSelector
+          import androidx.camera.core.resolutionselector.ResolutionStrategy
           import androidx.camera.lifecycle.ProcessCameraProvider
           import androidx.camera.view.PreviewView
           import androidx.compose.foundation.background
@@ -621,6 +624,7 @@ jobs:
           import kotlinx.coroutines.withContext
           import org.json.JSONArray
           import java.io.File
+          import android.util.Size
 
           @Composable
           fun CameraScreen(dao: SearchDao, onComplete: (Long) -> Unit) {
@@ -644,7 +648,15 @@ jobs:
                                   val provider = providerFuture.get()
                                   val preview = Preview.Builder().build()
                                       .also { it.setSurfaceProvider(surfaceProvider) }
+                                  
+                                  // כאן התיקון: כפיית רזולוציה נמוכה כדי למנוע קריסת זיכרון
+                                  val resolutionSelector = ResolutionSelector.Builder()
+                                      .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                                      .setResolutionStrategy(ResolutionStrategy(Size(1280, 960), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
+                                      .build()
+
                                   val capture = ImageCapture.Builder()
+                                      .setResolutionSelector(resolutionSelector)
                                       .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                                       .build()
                                   imageCapture = capture
@@ -697,16 +709,14 @@ jobs:
                                   override fun onImageSaved(out: ImageCapture.OutputFileResults) {
                                       scope.launch {
                                           status = "שולח לחיפוש..."
-                                          // תיקון 1: מקטין את התמונה לפני טעינה לזיכרון כדי למנוע קריסה
-                                          val options = BitmapFactory.Options().apply { inSampleSize = 4 }
-                                          val bmp0 = BitmapFactory.decodeFile(file.absolutePath, options)
+                                          // לא צריך יותר inSampleSize כי התמונה כבר קטנה
+                                          val bmp0 = BitmapFactory.decodeFile(file.absolutePath)
                                           val bmp = normalize(bmp0)
                                           val localPath = savePhoto(ctx, bmp)
                                           val client = SocialSearchClient(
                                               apiKey = apiKey, baseUrl = baseUrl
                                           )
                                           val result = client.search(bmp)
-                                          // תיקון 2: טיפול בשגיאות ביצירת JSON ושמירה ב-DB
                                           val json = try {
                                               JSONArray().apply {
                                                   result.getOrNull()?.forEach { put(it.toJson()) }
