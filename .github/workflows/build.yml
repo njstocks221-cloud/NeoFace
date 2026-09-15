@@ -1,3 +1,7 @@
+My previous version introduced errors, including a missing Image import and a parser that failed when more than 50 results arrived. This replacement fixes those issues, preserves your original Room history database and settings, and clears old generated source files to avoid conflicts.
+
+Replace all of .github/workflows/build.yml with this block. I haven’t compiled it here, and GitHub’s “File could not be edited” message is a separate saving issue.
+
 name: Build NeoFace APK
 
 on:
@@ -13,210 +17,1187 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Setup JDK 17
+      name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Android SDK
+      name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.4"
+
+      name: Install Android SDK packages
+        shell: bash
         run: |
-          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager \
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+
+          set +o pipefail
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          set -o pipefail
+
+          "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-34" \
             "build-tools;34.0.0"
 
-      - name: Create NeoFace project
+      name: Generate project
+        shell: bash
         run: |
+This workflow generates the entire app.
+Remove old generated sources so they cannot conflict.
+          rm -rf app
           mkdir -p app/src/main/java/com/neoface
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/drawable
 
-          printf 'sdk.dir=/usr/local/lib/android/sdk\n' > local.properties
+          printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
 
-          cat > settings.gradle << 'EOF'
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
+          cat > settings.gradle  build.gradle  gradle.properties  app/build.gradle  app/src/main/AndroidManifest.xml
 
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-
-          rootProject.name = "NeoFace"
-          include(":app")
           EOF
 
-          cat > build.gradle << 'EOF'
-          plugins {
-              id("com.android.application") version "8.2.0" apply false
-              id("org.jetbrains.kotlin.android") version "1.9.20" apply false
+          cat > app/src/main/res/values/themes.xml
+
+                  #0A0E27
+                  #0A0E27
+                  #0A0E27
+                  false
+
+              NeoFace
+
+          EOF
+
+          cat > app/src/main/res/drawable/ic_neo_logo.xml
+
+          EOF
+
+          cat > app/src/main/java/com/neoface/Data.kt >
+
+              @Delete
+              suspend fun delete(record: SearchRecord)
+          }
+
+          @Database(
+              entities = [SearchRecord::class],
+              version = 1,
+              exportSchema = false
+          )
+          abstract class AppDatabase : RoomDatabase() {
+              abstract fun dao(): SearchDao
+
+              companion object {
+                  @Volatile
+                  private var instance: AppDatabase? = null
+
+                  fun get(context: Context): AppDatabase =
+                      instance ?: synchronized(this) {
+                          instance ?: Room.databaseBuilder(
+                              context.applicationContext,
+                              AppDatabase::class.java,
+                              "neoface.db"
+                          ).build().also { instance = it }
+                      }
+              }
+          }
+
+          object Settings {
+              const val DEFAULT_URL = "https://api.faceseek.online"
+
+              private fun prefs(context: Context) =
+                  context.getSharedPreferences(
+                      "neoface_prefs",
+                      Context.MODE_PRIVATE
+                  )
+
+              fun apiKey(context: Context): String =
+                  prefs(context).getString("api_key", "") ?: ""
+
+              fun baseUrl(context: Context): String =
+                  prefs(context).getString("base_url", DEFAULT_URL)
+                      ?: DEFAULT_URL
+
+              fun save(context: Context, key: String, url: String) {
+                  prefs(context).edit()
+                      .putString("api_key", key.trim())
+                      .putString("base_url", url.trim().trimEnd('/'))
+                      .apply()
+              }
           }
           EOF
 
-          cat > gradle.properties << 'EOF'
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-          android.useAndroidX=true
-          kotlin.code.style=official
-          android.nonTransitiveRClass=true
-          EOF
+          cat > app/src/main/java/com/neoface/Images.kt  0)
 
-          cat > app/build.gradle << 'EOF'
-          plugins {
-              id("com.android.application")
-              id("org.jetbrains.kotlin.android")
+              if (bounds.outWidth  maxDimension ||
+                  bounds.outHeight / sample > maxDimension
+              ) {
+                  sample *= 2
+              }
+
+              return BitmapFactory.Options().apply {
+                  inSampleSize = sample
+                  inPreferredConfig = Bitmap.Config.ARGB_8888
+              }
           }
 
-          android {
-              namespace = "com.neoface"
-              compileSdk = 34
-
-              defaultConfig {
-                  applicationId = "com.neoface"
-                  minSdk = 24
-                  targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0.0"
+          fun decodeUri(context: Context, uri: Uri): Bitmap {
+              val resolver = context.contentResolver
+              val bounds = BitmapFactory.Options().apply {
+                  inJustDecodeBounds = true
               }
 
-              buildFeatures {
-                  compose = true
-                  buildConfig = true
+              (resolver.openInputStream(uri)
+                  ?: throw IOException("Cannot open image")).use {
+                  BitmapFactory.decodeStream(it, null, bounds)
               }
 
-              composeOptions {
-                  kotlinCompilerExtensionVersion = "1.5.4"
+              val options = decodeOptions(bounds, 512)
+              val bitmap = (resolver.openInputStream(uri)
+                  ?: throw IOException("Cannot reopen image")).use {
+                  BitmapFactory.decodeStream(it, null, options)
+              } ?: throw IOException("Cannot decode image")
+
+              val orientation = try {
+                  resolver.openInputStream(uri)?.use {
+                      ExifInterface(it).getAttributeInt(
+                          ExifInterface.TAG_ORIENTATION,
+                          ExifInterface.ORIENTATION_NORMAL
+                      )
+                  } ?: ExifInterface.ORIENTATION_NORMAL
+              } catch (_: IOException) {
+                  ExifInterface.ORIENTATION_NORMAL
               }
 
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
+              val matrix = Matrix()
+              when (orientation) {
+                  ExifInterface.ORIENTATION_FLIP_HORIZONTAL ->
+                      matrix.setScale(-1f, 1f)
+                  ExifInterface.ORIENTATION_ROTATE_180 ->
+                      matrix.setRotate(180f)
+                  ExifInterface.ORIENTATION_FLIP_VERTICAL ->
+                      matrix.setScale(1f, -1f)
+                  ExifInterface.ORIENTATION_TRANSPOSE -> {
+                      matrix.setRotate(90f)
+                      matrix.postScale(-1f, 1f)
+                  }
+                  ExifInterface.ORIENTATION_ROTATE_90 ->
+                      matrix.setRotate(90f)
+                  ExifInterface.ORIENTATION_TRANSVERSE -> {
+                      matrix.setRotate(-90f)
+                      matrix.postScale(-1f, 1f)
+                  }
+                  ExifInterface.ORIENTATION_ROTATE_270 ->
+                      matrix.setRotate(-90f)
               }
 
-              kotlinOptions {
-                  jvmTarget = "17"
+              if (matrix.isIdentity) return bitmap
+
+              return try {
+                  Bitmap.createBitmap(
+                      bitmap, 0, 0, bitmap.width, bitmap.height,
+                      matrix, true
+                  ).also {
+                      if (it !== bitmap) bitmap.recycle()
+                  }
+              } catch (e: Exception) {
+                  bitmap.recycle()
+                  throw e
+              }
+          }
+
+          fun savePhoto(context: Context, bitmap: Bitmap): File {
+              val directory = File(context.filesDir, "photos")
+              if (!directory.exists() && !directory.mkdirs()) {
+                  throw IOException("Cannot create photo directory")
               }
 
-              packaging {
-                  resources {
-                      excludes += "META-INF/*"
+              val file = File(directory, "face_${UUID.randomUUID()}.jpg")
+              try {
+                  file.outputStream().use {
+                      if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it)) {
+                          throw IOException("Cannot save image")
+                      }
+                  }
+                  return file
+              } catch (e: Exception) {
+                  file.delete()
+                  throw e
+              }
+          }
+
+          fun decodeThumbnail(path: String): Bitmap? = try {
+              val bounds = BitmapFactory.Options().apply {
+                  inJustDecodeBounds = true
+              }
+              BitmapFactory.decodeFile(path, bounds)
+              BitmapFactory.decodeFile(path, decodeOptions(bounds, 200))
+          } catch (_: Exception) {
+              null
+          }
+          EOF
+
+          cat > app/src/main/java/com/neoface/SearchClient.kt  {
+                  require(apiKey.isNotBlank()) { "Missing API key" }
+
+                  val base = baseUrl.trim().toHttpUrlOrNull()
+                      ?: throw IOException("Invalid server URL")
+
+                  require(base.isHttps) { "Server URL must use HTTPS" }
+                  require(base.username.isEmpty() && base.password.isEmpty()) {
+                      "Server URL must not contain credentials"
+                  }
+
+                  val endpoint = base.newBuilder()
+                      .query(null)
+                      .fragment(null)
+                      .encodedPath(
+                          base.encodedPath.trimEnd('/') + "/v1/api/search"
+                      )
+                      .build()
+
+                  val body = MultipartBody.Builder()
+                      .setType(MultipartBody.FORM)
+                      .addFormDataPart(
+                          "file",
+                          "face.jpg",
+                          photo.asRequestBody("image/jpeg".toMediaType())
+                      )
+                      .build()
+
+                  val request = Request.Builder()
+                      .url(endpoint)
+                      .header("X-API-Key", apiKey.trim())
+                      .header("Accept", "application/json")
+                      .post(body)
+                      .build()
+
+                  val call = http.newCall(request)
+
+                  return suspendCancellableCoroutine { continuation ->
+                      continuation.invokeOnCancellation { call.cancel() }
+
+                      call.enqueue(object : Callback {
+                          override fun onFailure(call: Call, e: IOException) {
+                              if (continuation.isActive) {
+                                  continuation.resumeWithException(e)
+                              }
+                          }
+
+                          override fun onResponse(
+                              call: Call,
+                              response: Response
+                          ) {
+                              try {
+                                  val results = response.use {
+                                      if (!it.isSuccessful) {
+                                          // Bound error-body reads as well.
+                                          val detail = it.peekBody(1024)
+                                              .string()
+                                              .take(300)
+                                          throw IOException(
+                                              "HTTP ${it.code}: $detail"
+                                          )
+                                      }
+
+                                      val responseBody = it.body
+                                          ?: throw IOException("Empty response")
+
+                                      JsonReader(
+                                          responseBody.charStream()
+                                      ).use { reader ->
+                                          readResults(reader, call)
+                                      }
+                                  }
+
+                                  if (continuation.isActive) {
+                                      continuation.resumeWith(
+                                          Result.success(results)
+                                      )
+                                  }
+                              } catch (e: Exception) {
+                                  if (continuation.isActive) {
+                                      continuation.resumeWithException(e)
+                                  }
+                              }
+                          }
+                      })
+                  }
+              }
+
+              private fun readText(
+                  reader: JsonReader,
+                  maximum: Int
+              ): String = when (reader.peek()) {
+                  JsonToken.STRING, JsonToken.NUMBER ->
+                      reader.nextString().take(maximum)
+                  else -> {
+                      reader.skipValue()
+                      ""
+                  }
+              }
+
+              private fun readResults(
+                  reader: JsonReader,
+                  call: Call
+              ): List {
+                  if (reader.peek() != JsonToken.BEGIN_OBJECT) {
+                      throw IOException("Expected a JSON response object")
+                  }
+
+                  // Keep memory bounded instead of retaining every result.
+                  val best = mutableListOf()
+                  var foundResults = false
+
+                  reader.beginObject()
+                  while (reader.hasNext()) {
+                      if (call.isCanceled()) {
+                          throw IOException("Search cancelled")
+                      }
+
+                      if (reader.nextName() != "results") {
+                          reader.skipValue()
+                          continue
+                      }
+
+                      if (reader.peek() != JsonToken.BEGIN_ARRAY) {
+                          throw IOException("Response 'results' is not an array")
+                      }
+
+                      foundResults = true
+                      reader.beginArray()
+
+                      // Consume the entire array, including entries after 50.
+                      while (reader.hasNext()) {
+                          if (call.isCanceled()) {
+                              throw IOException("Search cancelled")
+                          }
+
+                          if (reader.peek() != JsonToken.BEGIN_OBJECT) {
+                              reader.skipValue()
+                              continue
+                          }
+
+                          var sourceUrl = ""
+                          var fallbackUrl = ""
+                          var title = ""
+                          var domain = ""
+                          var score = 0.0
+
+                          reader.beginObject()
+                          while (reader.hasNext()) {
+                              when (reader.nextName()) {
+                                  "source_url" ->
+                                      sourceUrl = readText(reader, 4096)
+                                  "url" ->
+                                      fallbackUrl = readText(reader, 4096)
+                                  "title" ->
+                                      title = readText(reader, 500)
+                                  "domain" ->
+                                      domain = readText(reader, 250)
+                                  "score" ->
+                                      score = readText(reader, 64)
+                                          .toDoubleOrNull() ?: 0.0
+                                  else -> reader.skipValue()
+                              }
+                          }
+                          reader.endObject()
+
+                          val address = sourceUrl.toHttpUrlOrNull()
+                              ?: fallbackUrl.toHttpUrlOrNull()
+                              ?: continue
+
+                          val normalized = when {
+                              !score.isFinite() -> 0.0
+                              score > 1.0 -> score / 100.0
+                              else -> score
+                          }.coerceIn(0.0, 1.0).toFloat()
+
+                          val profile = SocialProfile(
+                              url = address.toString(),
+                              score = normalized,
+                              platform = detectPlatform(address.host),
+                              title = title.ifBlank { domain }
+                          )
+
+                          val existing = best.indexOfFirst {
+                              it.url == profile.url
+                          }
+
+                          if (existing >= 0) {
+                              if (profile.score > best[existing].score) {
+                                  best[existing] = profile
+                              }
+                          } else {
+                              best.add(profile)
+                          }
+
+                          best.sortByDescending { it.score }
+                          if (best.size > 50) {
+                              best.removeAt(best.lastIndex)
+                          }
+                      }
+
+                      reader.endArray()
+                  }
+                  reader.endObject()
+
+                  if (!foundResults) {
+                      throw IOException(
+                          "Response has no 'results' array. Check the API endpoint."
+                      )
+                  }
+
+                  return best.toList()
+              }
+
+              private fun detectPlatform(host: String): String {
+                  val h = host.lowercase(Locale.ROOT)
+                  fun matches(domain: String) =
+                      h == domain || h.endsWith(".$domain")
+
+                  return when {
+                      matches("instagram.com") -> "Instagram"
+                      matches("tiktok.com") -> "TikTok"
+                      matches("facebook.com") || matches("fb.com") -> "Facebook"
+                      matches("twitter.com") || matches("x.com") -> "X"
+                      matches("linkedin.com") -> "LinkedIn"
+                      matches("youtube.com") -> "YouTube"
+                      matches("vk.com") -> "VK"
+                      matches("ok.ru") -> "OK"
+                      matches("pinterest.com") -> "Pinterest"
+                      matches("t.me") || matches("telegram.org") -> "Telegram"
+                      matches("reddit.com") -> "Reddit"
+                      else -> "Web"
                   }
               }
           }
 
-          dependencies {
-              implementation(platform("androidx.compose:compose-bom:2024.02.00"))
+          fun profilesToJson(profiles: List): String =
+              JSONArray().apply {
+                  profiles.take(50).forEach { profile ->
+                      put(JSONObject().apply {
+                          put("url", profile.url)
+                          put("score", profile.score.toDouble())
+                          put("platform", profile.platform)
+                          put("title", profile.title)
+                          put("thumbnailUrl", JSONObject.NULL)
+                      })
+                  }
+              }.toString()
 
-              implementation("androidx.core:core-ktx:1.12.0")
-              implementation("androidx.activity:activity-compose:1.8.2")
+          fun parseProfiles(json: String): List {
+              val array = JSONArray(json)
+              return buildList {
+                  for (index in 0 until minOf(array.length(), 50)) {
+                      val item = array.optJSONObject(index) ?: continue
+                      val url = item.optString("url")
+                          .toHttpUrlOrNull() ?: continue
 
-              implementation("androidx.compose.ui:ui")
-              implementation("androidx.compose.ui:ui-tooling-preview")
-              implementation("androidx.compose.material3:material3")
-              implementation("androidx.compose.material:material-icons-extended")
-
-              debugImplementation("androidx.compose.ui:ui-tooling")
-
-              implementation("com.squareup.okhttp3:okhttp:4.12.0")
-              implementation("com.google.code.gson:gson:2.10.1")
-              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+                      val rawScore = item.optDouble("score", 0.0)
+                      add(
+                          SocialProfile(
+                              url = url.toString(),
+                              score = if (rawScore.isFinite()) {
+                                  rawScore.coerceIn(0.0, 1.0).toFloat()
+                              } else {
+                                  0f
+                              },
+                              platform = item.optString("platform", "Web"),
+                              title = item.optString("title", "")
+                          )
+                      )
+                  }
+              }.distinctBy { it.url }.sortedByDescending { it.score }
           }
           EOF
 
-          cat > app/src/main/AndroidManifest.xml << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          cat > app/src/main/java/com/neoface/NeoViewModel.kt (null)
+              val error = _error.asStateFlow()
 
-              <uses-permission android:name="android.permission.INTERNET" />
+              private val _selected = MutableStateFlow(null)
+              val selected = _selected.asStateFlow()
 
-              <queries>
-                  <intent>
-                      <action android:name="android.intent.action.GET_CONTENT" />
-                      <category android:name="android.intent.category.OPENABLE" />
-                      <data android:mimeType="image/*" />
-                  </intent>
-              </queries>
+              private var searchJob: Job? = null
 
-              <application
-                  android:allowBackup="true"
-                  android:icon="@drawable/ic_neo_logo"
-                  android:label="NeoFace"
-                  android:roundIcon="@drawable/ic_neo_logo"
-                  android:supportsRtl="true"
-                  android:theme="@style/Theme.NeoFace"
-                  android:usesCleartextTraffic="false">
+              val history: StateFlow> = dao.all()
+                  .catch { e ->
+                      if (e is CancellationException) throw e
+                      report(e)
+                      emit(emptyList())
+                  }
+                  .stateIn(
+                      viewModelScope,
+                      SharingStarted.WhileSubscribed(5000),
+                      emptyList()
+                  )
 
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true"
-                      android:screenOrientation="portrait">
+              fun clearError() {
+                  _error.value = null
+              }
 
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
+              fun showError(message: String) {
+                  _error.value = message
+              }
+
+              fun open(record: SearchRecord) {
+                  _selected.value = record
+              }
+
+              fun closeResults() {
+                  _selected.value = null
+              }
+
+              fun cancelSearch() {
+                  searchJob?.cancel()
+              }
+
+              fun search(uri: Uri) {
+                  if (_busy.value) return
+
+                  val key = Settings.apiKey(context)
+                  val url = Settings.baseUrl(context)
+
+                  if (key.isBlank()) {
+                      showError("יש להזין מפתח API בהגדרות")
+                      return
+                  }
+
+                  _busy.value = true
+                  _status.value = "מעבד תמונה..."
+                  _error.value = null
+
+                  searchJob = viewModelScope.launch {
+                      var photo: File? = null
+                      var saved = false
+
+                      try {
+                          val record = withContext(Dispatchers.IO) {
+                              val bitmap = decodeUri(context, uri)
+
+                              val file = try {
+                                  savePhoto(context, bitmap).also { photo = it }
+                              } finally {
+                                  bitmap.recycle()
+                              }
+
+                              _status.value = "שולח לשרת..."
+                              var apiError: String? = null
+
+                              val profiles = try {
+                                  SearchClient.search(file, key, url)
+                              } catch (e: CancellationException) {
+                                  throw e
+                              } catch (e: Exception) {
+                                  Log.e("NeoFace", "Search failed", e)
+                                  apiError = e.message ?: "Search failed"
+                                  emptyList()
+                              }
+
+                              _status.value = "שומר תוצאות..."
+
+                              val newRecord = SearchRecord(
+                                  photoPath = file.absolutePath,
+                                  resultsJson = profilesToJson(profiles),
+                                  resultCount = profiles.size,
+                                  error = apiError
+                              )
+
+                              // Let an insert finish atomically with respect
+                              // to cancellation before cleaning up its photo.
+                              withContext(NonCancellable) {
+                                  val id = dao.insert(newRecord)
+                                  saved = true
+                                  newRecord.copy(id = id)
+                              }
+                          }
+
+                          _selected.value = record
+                      } catch (e: CancellationException) {
+                          throw e
+                      } catch (e: Exception) {
+                          report(e)
+                      } finally {
+                          if (!saved) {
+                              withContext(NonCancellable + Dispatchers.IO) {
+                                  photo?.delete()
+                              }
+                          }
+                          _busy.value = false
+                          _status.value = ""
+                      }
+                  }
+              }
+
+              fun delete(record: SearchRecord) {
+                  viewModelScope.launch {
+                      try {
+                          withContext(Dispatchers.IO) {
+                              dao.delete(record)
+                              File(record.photoPath).delete()
+                          }
+                          if (_selected.value?.id == record.id) {
+                              _selected.value = null
+                          }
+                      } catch (e: CancellationException) {
+                          throw e
+                      } catch (e: Exception) {
+                          report(e)
+                      }
+                  }
+              }
+
+              private fun report(e: Throwable) {
+                  Log.e("NeoFace", "Operation failed", e)
+                  _error.value = e.message ?: "Operation failed"
+              }
+          }
           EOF
 
-          cat > app/src/main/res/values/themes.xml << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <style name="Theme.NeoFace" parent="android:Theme.Material.NoActionBar">
-                  <item name="android:statusBarColor">#0A0E27</item>
-                  <item name="android:navigationBarColor">#0A0E27</item>
-                  <item name="android:windowBackground">#0A0E27</item>
-              </style>
-          </resources>
+          cat > app/src/main/java/com/neoface/MainActivity.kt
+                  Box(
+                      Modifier.fillMaxSize()
+                          .padding(padding)
+                          .background(NeoBg)
+                  ) {
+                      val record = selected
+                      when {
+                          record != null -> ResultsScreen(
+                              record = record,
+                              onBack = {
+                                  vm.closeResults()
+                                  page = "search"
+                              },
+                              onDelete = { vm.delete(record) },
+                              onError = vm::showError
+                          )
+                          page == "history" -> HistoryScreen(vm)
+                          page == "settings" -> SettingsScreen(vm::showError)
+                          else -> SearchScreen(vm)
+                      }
+                  }
+              }
+
+              if (busy) {
+                  Dialog(
+                      onDismissRequest = {},
+                      properties = DialogProperties(
+                          dismissOnBackPress = false,
+                          dismissOnClickOutside = false
+                      )
+                  ) {
+                      Surface(
+                          shape = RoundedCornerShape(20.dp),
+                          color = NeoSurface
+                      ) {
+                          Column(
+                              Modifier.fillMaxWidth().padding(28.dp),
+                              horizontalAlignment = Alignment.CenterHorizontally
+                          ) {
+                              CircularProgressIndicator(color = NeoCyan)
+                              Spacer(Modifier.height(20.dp))
+                              Text(status, color = NeoCyan)
+                              Spacer(Modifier.height(12.dp))
+                              TextButton(onClick = vm::cancelSearch) {
+                                  Text("ביטול")
+                              }
+                          }
+                      }
+                  }
+              }
+
+              error?.let { message ->
+                  AlertDialog(
+                      onDismissRequest = vm::clearError,
+                      title = { Text("שגיאה", color = NeoRed) },
+                      text = { Text(message) },
+                      confirmButton = {
+                          TextButton(onClick = vm::clearError) {
+                              Text("אישור")
+                          }
+                      },
+                      containerColor = NeoSurface
+                  )
+              }
+          }
+
+          @Composable
+          private fun SearchScreen(vm: NeoViewModel) {
+              val context = LocalContext.current
+              val picker = rememberLauncherForActivityResult(
+                  ActivityResultContracts.GetContent()
+              ) { uri ->
+                  if (uri != null) vm.search(uri)
+              }
+
+              Column(
+                  modifier = Modifier.fillMaxSize()
+                      .verticalScroll(rememberScrollState())
+                      .padding(28.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  verticalArrangement = Arrangement.Center
+              ) {
+                  Text(
+                      "NeoFace",
+                      color = NeoCyan,
+                      style = MaterialTheme.typography.headlineLarge,
+                      fontWeight = FontWeight.Bold
+                  )
+
+                  Spacer(Modifier.height(8.dp))
+                  Text("חיפוש פנים הפוך", color = Color.Gray)
+                  Spacer(Modifier.height(40.dp))
+
+                  FloatingActionButton(
+                      onClick = {
+                          if (Settings.apiKey(context).isBlank()) {
+                              vm.showError("יש להזין מפתח API בהגדרות")
+                          } else {
+                              try {
+                                  picker.launch("image/*")
+                              } catch (e: Exception) {
+                                  vm.showError(
+                                      e.message ?: "Cannot open image picker"
+                                  )
+                              }
+                          }
+                      },
+                      modifier = Modifier.size(112.dp),
+                      shape = CircleShape,
+                      containerColor = NeoCyan
+                  ) {
+                      Icon(
+                          Icons.Default.Image,
+                          contentDescription = "בחר תמונה",
+                          modifier = Modifier.size(54.dp),
+                          tint = NeoBg
+                      )
+                  }
+
+                  Spacer(Modifier.height(24.dp))
+                  Text("בחר תמונה מהגלריה", color = NeoCyan)
+
+                  Spacer(Modifier.height(28.dp))
+                  Text(
+                      "התמונה תישלח לשרת המוגדר בהגדרות. השתמש רק בתמונות שיש לך הרשאה להשתמש בהן.",
+                      color = Color.Gray,
+                      textAlign = TextAlign.Center,
+                      style = MaterialTheme.typography.bodySmall
+                  )
+              }
+          }
+
+          @Composable
+          private fun Thumbnail(path: String, modifier: Modifier) {
+              val bitmap by produceState(null, path) {
+                  value = withContext(Dispatchers.IO) {
+                      decodeThumbnail(path)
+                  }
+              }
+
+              val image = bitmap
+              if (image != null) {
+                  Image(
+                      bitmap = image.asImageBitmap(),
+                      contentDescription = null,
+                      modifier = modifier.clip(RoundedCornerShape(12.dp)),
+                      contentScale = ContentScale.Crop
+                  )
+              } else {
+                  Box(
+                      modifier.clip(RoundedCornerShape(12.dp))
+                          .background(NeoBg),
+                      contentAlignment = Alignment.Center
+                  ) {
+                      Icon(Icons.Default.Image, null, tint = NeoCyan)
+                  }
+              }
+          }
+
+          private fun formattedDate(timestamp: Long): String =
+              SimpleDateFormat(
+                  "dd/MM/yyyy HH:mm",
+                  Locale.getDefault()
+              ).format(Date(timestamp))
+
+          @Composable
+          private fun ResultsScreen(
+              record: SearchRecord,
+              onBack: () -> Unit,
+              onDelete: () -> Unit,
+              onError: (String) -> Unit
+          ) {
+              val context = LocalContext.current
+              var profiles by remember(record.id) {
+                  mutableStateOf>(emptyList())
+              }
+              var loading by remember(record.id) { mutableStateOf(true) }
+              var parseError by remember(record.id) {
+                  mutableStateOf(null)
+              }
+
+              LaunchedEffect(record.id, record.resultsJson) {
+                  loading = true
+                  try {
+                      profiles = withContext(Dispatchers.Default) {
+                          parseProfiles(record.resultsJson)
+                      }
+                  } catch (e: CancellationException) {
+                      throw e
+                  } catch (e: Exception) {
+                      parseError = e.message ?: "Cannot read saved results"
+                  } finally {
+                      loading = false
+                  }
+              }
+
+              Column(Modifier.fillMaxSize()) {
+                  Surface(color = NeoSurface) {
+                      Row(
+                          Modifier.fillMaxWidth().padding(16.dp),
+                          verticalAlignment = Alignment.CenterVertically
+                      ) {
+                          Thumbnail(record.photoPath, Modifier.size(64.dp))
+                          Spacer(Modifier.width(12.dp))
+
+                          Column(Modifier.weight(1f)) {
+                              Text(
+                                  "תוצאות חיפוש",
+                                  color = NeoCyan,
+                                  fontWeight = FontWeight.Bold
+                              )
+                              Text("${record.resultCount} פרופילים")
+                              Text(
+                                  formattedDate(record.timestamp),
+                                  color = Color.Gray,
+                                  style = MaterialTheme.typography.bodySmall
+                              )
+                          }
+
+                          IconButton(onClick = onDelete) {
+                              Icon(Icons.Default.Delete, "מחק", tint = NeoRed)
+                          }
+                      }
+                  }
+
+                  LazyColumn(
+                      modifier = Modifier.weight(1f).fillMaxWidth(),
+                      contentPadding = PaddingValues(12.dp)
+                  ) {
+                      val message = record.error ?: parseError
+                      if (message != null) {
+                          item {
+                              Surface(
+                                  color = NeoRed.copy(alpha = 0.15f),
+                                  shape = RoundedCornerShape(12.dp)
+                              ) {
+                                  Text(
+                                      message,
+                                      modifier = Modifier.padding(16.dp),
+                                      color = NeoRed
+                                  )
+                              }
+                          }
+                      }
+
+                      if (loading) {
+                          item {
+                              Box(
+                                  Modifier.fillMaxWidth().padding(32.dp),
+                                  contentAlignment = Alignment.Center
+                              ) {
+                                  CircularProgressIndicator(color = NeoCyan)
+                              }
+                          }
+                      } else if (profiles.isEmpty() && message == null) {
+                          item {
+                              Text(
+                                  "לא נמצאו פרופילים",
+                                  modifier = Modifier.fillMaxWidth()
+                                      .padding(32.dp),
+                                  textAlign = TextAlign.Center
+                              )
+                          }
+                      }
+
+                      items(profiles, key = { it.url }) { profile ->
+                          Surface(
+                              color = NeoSurface,
+                              shape = RoundedCornerShape(14.dp),
+                              modifier = Modifier.fillMaxWidth()
+                                  .padding(vertical = 6.dp)
+                                  .clickable {
+                                      try {
+                                          context.startActivity(
+                                              Intent(
+                                                  Intent.ACTION_VIEW,
+                                                  Uri.parse(profile.url)
+                                              )
+                                          )
+                                      } catch (e: Exception) {
+                                          onError(
+                                              e.message ?: "Cannot open link"
+                                          )
+                                      }
+                                  }
+                          ) {
+                              Column(Modifier.padding(16.dp)) {
+                                  Row(
+                                      verticalAlignment = Alignment.CenterVertically
+                                  ) {
+                                      Text(
+                                          profile.platform,
+                                          color = NeoCyan,
+                                          fontWeight = FontWeight.Bold,
+                                          modifier = Modifier.weight(1f)
+                                      )
+                                      Text(
+                                          "${(profile.score * 100).toInt()}%",
+                                          color = NeoGreen
+                                      )
+                                      Spacer(Modifier.width(10.dp))
+                                      Icon(
+                                          Icons.Default.OpenInNew,
+                                          null,
+                                          tint = NeoCyan
+                                      )
+                                  }
+
+                                  if (profile.title.isNotBlank()) {
+                                      Spacer(Modifier.height(6.dp))
+                                      Text(profile.title, maxLines = 2)
+                                  }
+
+                                  Spacer(Modifier.height(4.dp))
+                                  Text(
+                                      profile.url,
+                                      color = Color.Gray,
+                                      style = MaterialTheme.typography.bodySmall,
+                                      maxLines = 2
+                                  )
+                              }
+                          }
+                      }
+                  }
+
+                  Button(
+                      onClick = onBack,
+                      modifier = Modifier.fillMaxWidth().padding(16.dp)
+                  ) {
+                      Text("חפש שוב")
+                  }
+              }
+          }
+
+          @Composable
+          private fun HistoryScreen(vm: NeoViewModel) {
+              val records by vm.history.collectAsState()
+
+              Column(Modifier.fillMaxSize()) {
+                  Text(
+                      "היסטוריית חיפושים (${records.size})",
+                      modifier = Modifier.padding(16.dp),
+                      color = NeoCyan,
+                      style = MaterialTheme.typography.titleLarge
+                  )
+
+                  if (records.isEmpty()) {
+                      Box(
+                          Modifier.weight(1f).fillMaxWidth(),
+                          contentAlignment = Alignment.Center
+                      ) {
+                          Text("אין חיפושים שמורים", color = Color.Gray)
+                      }
+                  } else {
+                      LazyColumn(Modifier.weight(1f)) {
+                          items(records, key = { it.id }) { record ->
+                              Surface(
+                                  color = NeoSurface,
+                                  shape = RoundedCornerShape(12.dp),
+                                  modifier = Modifier.fillMaxWidth()
+                                      .padding(horizontal = 12.dp, vertical = 5.dp)
+                                      .clickable { vm.open(record) }
+                              ) {
+                                  Row(
+                                      Modifier.padding(12.dp),
+                                      verticalAlignment = Alignment.CenterVertically
+                                  ) {
+                                      Thumbnail(
+                                          record.photoPath,
+                                          Modifier.size(52.dp)
+                                      )
+
+                                      Spacer(Modifier.width(12.dp))
+
+                                      Column(Modifier.weight(1f)) {
+                                          Text(
+                                              if (record.error == null) {
+                                                  "${record.resultCount} פרופילים"
+                                              } else {
+                                                  "שגיאה בחיפוש"
+                                              },
+                                              color = if (record.error == null) {
+                                                  NeoCyan
+                                              } else {
+                                                  NeoRed
+                                              }
+                                          )
+                                          Text(
+                                              formattedDate(record.timestamp),
+                                              color = Color.Gray,
+                                              style = MaterialTheme.typography.bodySmall
+                                          )
+                                      }
+
+                                      IconButton(
+                                          onClick = { vm.delete(record) }
+                                      ) {
+                                          Icon(
+                                              Icons.Default.Delete,
+                                              "מחק",
+                                              tint = NeoRed
+                                          )
+                                      }
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          private fun SettingsScreen(onError: (String) -> Unit) {
+              val context = LocalContext.current
+              var key by remember { mutableStateOf(Settings.apiKey(context)) }
+              var url by remember { mutableStateOf(Settings.baseUrl(context)) }
+              var saved by remember { mutableStateOf(false) }
+
+              Column(
+                  modifier = Modifier.fillMaxSize()
+                      .verticalScroll(rememberScrollState())
+                      .padding(16.dp)
+              ) {
+                  Text(
+                      "הגדרות NeoFace",
+                      color = NeoCyan,
+                      style = MaterialTheme.typography.headlineSmall
+                  )
+
+                  Spacer(Modifier.height(20.dp))
+
+                  OutlinedTextField(
+                      value = key,
+                      onValueChange = {
+                          key = it
+                          saved = false
+                      },
+                      label = { Text("API Key") },
+                      visualTransformation = PasswordVisualTransformation(),
+                      singleLine = true,
+                      modifier = Modifier.fillMaxWidth()
+                  )
+
+                  Spacer(Modifier.height(16.dp))
+
+                  OutlinedTextField(
+                      value = url,
+                      onValueChange = {
+                          url = it
+                          saved = false
+                      },
+                      label = { Text("Base URL") },
+                      singleLine = true,
+                      modifier = Modifier.fillMaxWidth()
+                  )
+
+                  Spacer(Modifier.height(20.dp))
+
+                  Button(
+                      onClick = {
+                          val parsed = url.trim().toHttpUrlOrNull()
+                          when {
+                              parsed == null || !parsed.isHttps ->
+                                  onError("יש להזין כתובת HTTPS תקינה")
+                              parsed.username.isNotEmpty() ||
+                                  parsed.password.isNotEmpty() ->
+                                  onError("אין לכלול סיסמה בכתובת השרת")
+                              else -> {
+                                  Settings.save(
+                                      context,
+                                      key,
+                                      parsed.newBuilder()
+                                          .query(null)
+                                          .fragment(null)
+                                          .build()
+                                          .toString()
+                                  )
+                                  saved = true
+                              }
+                          }
+                      },
+                      modifier = Modifier.fillMaxWidth()
+                  ) {
+                      Icon(Icons.Default.Save, null)
+                      Spacer(Modifier.width(8.dp))
+                      Text("שמור")
+                  }
+
+                  if (saved) {
+                      Text(
+                          "נשמר בהצלחה",
+                          color = NeoGreen,
+                          modifier = Modifier.padding(vertical = 12.dp)
+                      )
+                  }
+
+                  Spacer(Modifier.height(24.dp))
+
+                  Surface(
+                      color = NeoSurface,
+                      shape = RoundedCornerShape(14.dp)
+                  ) {
+                      Text(
+                          "התמונה ומפתח ה-API נשלחים לשרת שהגדרת. הזן רק כתובת שרת שאתה סומך עליו. אין צורך בהרשאת מצלמה או אחסון כדי לבחור תמונה.",
+                          modifier = Modifier.padding(16.dp),
+                          style = MaterialTheme.typography.bodySmall
+                      )
+                  }
+
+                  Spacer(Modifier.height(24.dp))
+                  Text("NeoFace v1.0.1", color = Color.Gray)
+              }
+          }
           EOF
 
-          cat > app/src/main/res/values/strings.xml << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <string name="app_name">NeoFace</string>
-          </resources>
-          EOF
+      name: Build Debug APK
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
 
-          cat > app/src/main/res/drawable/ic_neo_logo.xml << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <vector xmlns:android="http://schemas.android.com/apk/res/android"
-              android:width="108dp"
-              android:height="108dp"
-              android:viewportWidth="108"
-              android:viewportHeight="108">
+      name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeoFace-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
 
-              <path
-                  android:fillColor="#0A0E27"
-                  android:pathData="M0,0h108v108h-108z" />
+      name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: NeoFace build ${{ github.run_number }}
+          body: |
+            NeoFace Android debug build.
 
-              <path
-                  android:fillColor="#00000000"
-                  android:strokeColor="#7C4DFF"
-                  android:strokeWidth="3"
-                  android:pathData="M54,14 A40,40 0 1,1 53.99,14 Z" />
+            Download app-debug.apk, install it, and enter your API
+            key and HTTPS server address in Settings.
 
-              <path
-                  android:fillColor="#00000000"
-                  android:strokeColor="#00E5FF"
-                  android:strokeLineCap="round"
-                  android:strokeLineJoin="round"
-                  android:strokeWidth="6"
-                  android:pathData="M36,76 L36,32 L72,76 L72,32" />
+            This build uses the configured server's /v1/api/search
+            endpoint and expects a JSON results array.
 
-              <path
-                  android:fillColor="#00E5FF"
-                  android:pathData="M46,46 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0" />
-
-              <path
+            Only upload images you have permission to use.
+          files: app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
