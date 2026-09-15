@@ -31,11 +31,9 @@ jobs:
         shell: bash
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-
           set +o pipefail
           yes | "$SDKMANAGER" --licenses >/dev/null
           set -o pipefail
-
           "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-34" \
@@ -44,8 +42,6 @@ jobs:
       - name: Generate project
         shell: bash
         run: |
-          # This workflow generates the entire app.
-          # Remove old generated sources so they cannot conflict.
           rm -rf app
           mkdir -p app/src/main/java/com/neoface
           mkdir -p app/src/main/res/values
@@ -61,7 +57,6 @@ jobs:
                   gradlePluginPortal()
               }
           }
-
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
               repositories {
@@ -69,7 +64,6 @@ jobs:
                   mavenCentral()
               }
           }
-
           rootProject.name = "NeoFace"
           include ':app'
           EOF
@@ -104,8 +98,8 @@ jobs:
                   applicationId "com.neoface"
                   minSdk 24
                   targetSdk 34
-                  versionCode 1
-                  versionName "1.0.1"
+                  versionCode 2
+                  versionName "1.1.0"
               }
 
               buildFeatures {
@@ -141,17 +135,14 @@ jobs:
               implementation 'androidx.compose.foundation:foundation'
               implementation 'androidx.compose.material3:material3'
               implementation 'androidx.compose.material:material-icons-extended'
-
               implementation 'androidx.core:core-ktx:1.12.0'
               implementation 'androidx.activity:activity-compose:1.8.2'
               implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0'
               implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0'
               implementation 'androidx.exifinterface:exifinterface:1.3.7'
-
               implementation 'androidx.room:room-runtime:2.6.1'
               implementation 'androidx.room:room-ktx:2.6.1'
               kapt 'androidx.room:room-compiler:2.6.1'
-
               implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
               implementation 'com.squareup.okhttp3:okhttp:4.12.0'
               implementation 'com.google.code.gson:gson:2.10.1'
@@ -163,6 +154,34 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET" />
 
+              <!-- Visibility for app-first link handling on Android 11+. -->
+              <queries>
+                  <package android:name="com.instagram.android" />
+                  <package android:name="com.facebook.katana" />
+                  <package android:name="com.facebook.lite" />
+                  <package android:name="com.zhiliaoapp.musically" />
+                  <package android:name="com.ss.android.ugc.trill" />
+                  <package android:name="com.twitter.android" />
+                  <package android:name="com.linkedin.android" />
+                  <package android:name="com.google.android.youtube" />
+                  <package android:name="org.telegram.messenger" />
+                  <package android:name="org.thunderdog.challegram" />
+                  <package android:name="com.reddit.frontpage" />
+                  <package android:name="com.pinterest" />
+                  <package android:name="com.snapchat.android" />
+                  <package android:name="com.instagram.barcelona" />
+                  <package android:name="com.vkontakte.android" />
+                  <package android:name="ru.ok.android" />
+                  <package android:name="xyz.blueskyweb.app" />
+                  <package android:name="tv.twitch.android.app" />
+                  <package android:name="com.tumblr" />
+                  <intent>
+                      <action android:name="android.intent.action.VIEW" />
+                      <category android:name="android.intent.category.BROWSABLE" />
+                      <data android:scheme="https" />
+                  </intent>
+              </queries>
+
               <application
                   android:label="NeoFace"
                   android:icon="@drawable/ic_neo_logo"
@@ -171,7 +190,6 @@ jobs:
                   android:allowBackup="false"
                   android:supportsRtl="true"
                   android:usesCleartextTraffic="false">
-
                   <activity
                       android:name=".MainActivity"
                       android:exported="true">
@@ -229,6 +247,7 @@ jobs:
           import androidx.room.*
           import kotlinx.coroutines.flow.Flow
 
+          // Keep the original database schema so existing history remains usable.
           @Entity(tableName = "searches")
           data class SearchRecord(
               @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -260,8 +279,7 @@ jobs:
               abstract fun dao(): SearchDao
 
               companion object {
-                  @Volatile
-                  private var instance: AppDatabase? = null
+                  @Volatile private var instance: AppDatabase? = null
 
                   fun get(context: Context): AppDatabase =
                       instance ?: synchronized(this) {
@@ -299,6 +317,183 @@ jobs:
           }
           EOF
 
+          cat > app/src/main/java/com/neoface/SocialLinks.kt <<'EOF'
+          package com.neoface
+
+          import android.content.ActivityNotFoundException
+          import android.content.Context
+          import android.content.Intent
+          import android.net.Uri
+          import okhttp3.HttpUrl
+          import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+          import java.util.Locale
+
+          data class SocialSite(
+              val name: String,
+              val domains: List<String>,
+              val packages: List<String>
+          )
+
+          data class SocialLink(
+              val url: String,
+              val platform: String
+          )
+
+          object SocialLinks {
+              private val sites = listOf(
+                  SocialSite(
+                      "Instagram",
+                      listOf("instagram.com"),
+                      listOf("com.instagram.android")
+                  ),
+                  SocialSite(
+                      "Facebook",
+                      listOf("facebook.com", "fb.com"),
+                      listOf("com.facebook.katana", "com.facebook.lite")
+                  ),
+                  SocialSite(
+                      "TikTok",
+                      listOf("tiktok.com"),
+                      listOf(
+                          "com.zhiliaoapp.musically",
+                          "com.ss.android.ugc.trill"
+                      )
+                  ),
+                  SocialSite(
+                      "X",
+                      listOf("x.com", "twitter.com"),
+                      listOf("com.twitter.android")
+                  ),
+                  SocialSite(
+                      "LinkedIn",
+                      listOf("linkedin.com"),
+                      listOf("com.linkedin.android")
+                  ),
+                  SocialSite(
+                      "YouTube",
+                      listOf("youtube.com", "youtu.be"),
+                      listOf("com.google.android.youtube")
+                  ),
+                  SocialSite(
+                      "Telegram",
+                      listOf("t.me", "telegram.me"),
+                      listOf(
+                          "org.telegram.messenger",
+                          "org.thunderdog.challegram"
+                      )
+                  ),
+                  SocialSite(
+                      "Reddit",
+                      listOf("reddit.com"),
+                      listOf("com.reddit.frontpage")
+                  ),
+                  SocialSite(
+                      "Pinterest",
+                      listOf("pinterest.com", "pin.it"),
+                      listOf("com.pinterest")
+                  ),
+                  SocialSite(
+                      "Snapchat",
+                      listOf("snapchat.com"),
+                      listOf("com.snapchat.android")
+                  ),
+                  SocialSite(
+                      "Threads",
+                      listOf("threads.net", "threads.com"),
+                      listOf("com.instagram.barcelona")
+                  ),
+                  SocialSite(
+                      "VK",
+                      listOf("vk.com"),
+                      listOf("com.vkontakte.android")
+                  ),
+                  SocialSite(
+                      "OK",
+                      listOf("ok.ru"),
+                      listOf("ru.ok.android")
+                  ),
+                  SocialSite(
+                      "Bluesky",
+                      listOf("bsky.app"),
+                      listOf("xyz.blueskyweb.app")
+                  ),
+                  SocialSite(
+                      "Twitch",
+                      listOf("twitch.tv"),
+                      listOf("tv.twitch.android.app")
+                  ),
+                  SocialSite(
+                      "Tumblr",
+                      listOf("tumblr.com"),
+                      listOf("com.tumblr")
+                  )
+              )
+
+              private fun siteFor(url: HttpUrl): SocialSite? {
+                  val host = url.host.lowercase(Locale.ROOT)
+                  return sites.firstOrNull { site ->
+                      site.domains.any { domain ->
+                          host == domain || host.endsWith(".$domain")
+                      }
+                  }
+              }
+
+              fun parse(raw: String): SocialLink? {
+                  val address = raw.trim().toHttpUrlOrNull() ?: return null
+                  if (address.username.isNotEmpty() ||
+                      address.password.isNotEmpty()) return null
+                  if (address.port != 80 && address.port != 443) return null
+
+                  val site = siteFor(address) ?: return null
+
+                  // Only accept links to approved social domains.
+                  // Do not invent usernames or convert posts into profiles.
+                  val normalized = address.newBuilder()
+                      .scheme("https")
+                      .port(443)
+                      .fragment(null)
+                      .build()
+
+                  return SocialLink(normalized.toString(), site.name)
+              }
+
+              fun open(context: Context, link: SocialLink) {
+                  val address = link.url.toHttpUrlOrNull()
+                      ?: throw IllegalArgumentException("Invalid social link")
+                  val site = siteFor(address)
+                      ?: throw IllegalArgumentException("Unsupported social link")
+
+                  val uri = Uri.parse(address.toString())
+
+                  // First try the platform's official Android apps.
+                  // The app must have an activity capable of handling this URL.
+                  for (packageName in site.packages) {
+                      val intent = Intent(Intent.ACTION_VIEW, uri)
+                          .addCategory(Intent.CATEGORY_BROWSABLE)
+                          .setPackage(packageName)
+                          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+                      try {
+                          context.startActivity(intent)
+                          return
+                      } catch (_: ActivityNotFoundException) {
+                          // App is missing or cannot handle this particular URL.
+                      } catch (_: SecurityException) {
+                          // Try another available handler.
+                      }
+                  }
+
+                  // Fallback to Android's normal HTTPS handler:
+                  // typically the browser, or another associated social app.
+                  context.startActivity(
+                      Intent(Intent.ACTION_VIEW, uri)
+                          .addCategory(Intent.CATEGORY_BROWSABLE)
+                          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                  )
+              }
+          }
+          EOF
+
           cat > app/src/main/java/com/neoface/Images.kt <<'EOF'
           package com.neoface
 
@@ -312,30 +507,6 @@ jobs:
           import java.io.IOException
           import java.util.UUID
 
-          private fun decodeOptions(
-              bounds: BitmapFactory.Options,
-              maxDimension: Int
-          ): BitmapFactory.Options {
-              require(maxDimension > 0)
-
-              if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                  throw IOException("Unsupported or damaged image")
-              }
-
-              var sample = 1
-              while (
-                  bounds.outWidth / sample > maxDimension ||
-                  bounds.outHeight / sample > maxDimension
-              ) {
-                  sample *= 2
-              }
-
-              return BitmapFactory.Options().apply {
-                  inSampleSize = sample
-                  inPreferredConfig = Bitmap.Config.ARGB_8888
-              }
-          }
-
           fun decodeUri(context: Context, uri: Uri): Bitmap {
               val resolver = context.contentResolver
               val bounds = BitmapFactory.Options().apply {
@@ -347,7 +518,23 @@ jobs:
                   BitmapFactory.decodeStream(it, null, bounds)
               }
 
-              val options = decodeOptions(bounds, 512)
+              if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                  throw IOException("Unsupported or damaged image")
+              }
+
+              var sample = 1
+              while (
+                  bounds.outWidth / sample > 512 ||
+                  bounds.outHeight / sample > 512
+              ) {
+                  sample *= 2
+              }
+
+              val options = BitmapFactory.Options().apply {
+                  inSampleSize = sample
+                  inPreferredConfig = Bitmap.Config.ARGB_8888
+              }
+
               val bitmap = (resolver.openInputStream(uri)
                   ?: throw IOException("Cannot reopen image")).use {
                   BitmapFactory.decodeStream(it, null, options)
@@ -403,6 +590,7 @@ jobs:
 
           fun savePhoto(context: Context, bitmap: Bitmap): File {
               val directory = File(context.filesDir, "photos")
+
               if (!directory.exists() && !directory.mkdirs()) {
                   throw IOException("Cannot create photo directory")
               }
@@ -420,16 +608,6 @@ jobs:
                   throw e
               }
           }
-
-          fun decodeThumbnail(path: String): Bitmap? = try {
-              val bounds = BitmapFactory.Options().apply {
-                  inJustDecodeBounds = true
-              }
-              BitmapFactory.decodeFile(path, bounds)
-              BitmapFactory.decodeFile(path, decodeOptions(bounds, 200))
-          } catch (_: Exception) {
-              null
-          }
           EOF
 
           cat > app/src/main/java/com/neoface/SearchClient.kt <<'EOF'
@@ -446,16 +624,8 @@ jobs:
           import org.json.JSONObject
           import java.io.File
           import java.io.IOException
-          import java.util.Locale
           import java.util.concurrent.TimeUnit
           import kotlin.coroutines.resumeWithException
-
-          data class SocialProfile(
-              val url: String,
-              val score: Float,
-              val platform: String,
-              val title: String
-          )
 
           object SearchClient {
               private val http = OkHttpClient.Builder()
@@ -471,7 +641,7 @@ jobs:
                   photo: File,
                   apiKey: String,
                   baseUrl: String
-              ): List<SocialProfile> {
+              ): List<SocialLink> {
                   require(apiKey.isNotBlank()) { "Missing API key" }
 
                   val base = baseUrl.trim().toHttpUrlOrNull()
@@ -523,12 +693,10 @@ jobs:
                               response: Response
                           ) {
                               try {
-                                  val results = response.use {
+                                  val links = response.use {
                                       if (!it.isSuccessful) {
-                                          // Bound error-body reads as well.
                                           val detail = it.peekBody(1024)
-                                              .string()
-                                              .take(300)
+                                              .string().take(300)
                                           throw IOException(
                                               "HTTP ${it.code}: $detail"
                                           )
@@ -546,7 +714,7 @@ jobs:
 
                                   if (continuation.isActive) {
                                       continuation.resumeWith(
-                                          Result.success(results)
+                                          Result.success(links)
                                       )
                                   }
                               } catch (e: Exception) {
@@ -559,13 +727,11 @@ jobs:
                   }
               }
 
-              private fun readText(
-                  reader: JsonReader,
-                  maximum: Int
-              ): String = when (reader.peek()) {
-                  JsonToken.STRING, JsonToken.NUMBER ->
-                      reader.nextString().take(maximum)
-                  else -> {
+              private fun readUrl(reader: JsonReader): String {
+                  return if (reader.peek() == JsonToken.STRING) {
+                      val text = reader.nextString()
+                      if (text.length <= 8192) text else ""
+                  } else {
                       reader.skipValue()
                       ""
                   }
@@ -574,13 +740,14 @@ jobs:
               private fun readResults(
                   reader: JsonReader,
                   call: Call
-              ): List<SocialProfile> {
+              ): List<SocialLink> {
                   if (reader.peek() != JsonToken.BEGIN_OBJECT) {
                       throw IOException("Expected a JSON response object")
                   }
 
-                  // Keep memory bounded instead of retaining every result.
-                  val best = mutableListOf<SocialProfile>()
+                  // No first-50 cutoff: collect all unique social links
+                  // returned in this response's results array.
+                  val links = linkedMapOf<String, SocialLink>()
                   var foundResults = false
 
                   reader.beginObject()
@@ -601,7 +768,6 @@ jobs:
                       foundResults = true
                       reader.beginArray()
 
-                      // Consume the entire array, including entries after 50.
                       while (reader.hasNext()) {
                           if (call.isCanceled()) {
                               throw IOException("Search cancelled")
@@ -612,68 +778,28 @@ jobs:
                               continue
                           }
 
-                          var sourceUrl = ""
-                          var fallbackUrl = ""
-                          var title = ""
-                          var domain = ""
-                          var score = 0.0
-
                           reader.beginObject()
+
                           while (reader.hasNext()) {
                               when (reader.nextName()) {
-                                  "source_url" ->
-                                      sourceUrl = readText(reader, 4096)
-                                  "url" ->
-                                      fallbackUrl = readText(reader, 4096)
-                                  "title" ->
-                                      title = readText(reader, 500)
-                                  "domain" ->
-                                      domain = readText(reader, 250)
-                                  "score" ->
-                                      score = readText(reader, 64)
-                                          .toDoubleOrNull() ?: 0.0
+                                  "source_url", "url", "profile_url" -> {
+                                      val link = SocialLinks.parse(readUrl(reader))
+                                      if (link != null) {
+                                          links[link.url] = link
+                                      }
+                                  }
+                                  // Ignore images, scores, titles and all
+                                  // other fields. Never scan image URLs.
                                   else -> reader.skipValue()
                               }
                           }
+
                           reader.endObject()
-
-                          val address = sourceUrl.toHttpUrlOrNull()
-                              ?: fallbackUrl.toHttpUrlOrNull()
-                              ?: continue
-
-                          val normalized = when {
-                              !score.isFinite() -> 0.0
-                              score > 1.0 -> score / 100.0
-                              else -> score
-                          }.coerceIn(0.0, 1.0).toFloat()
-
-                          val profile = SocialProfile(
-                              url = address.toString(),
-                              score = normalized,
-                              platform = detectPlatform(address.host),
-                              title = title.ifBlank { domain }
-                          )
-
-                          val existing = best.indexOfFirst {
-                              it.url == profile.url
-                          }
-
-                          if (existing >= 0) {
-                              if (profile.score > best[existing].score) {
-                                  best[existing] = profile
-                              }
-                          } else {
-                              best.add(profile)
-                          }
-
-                          best.sortByDescending { it.score }
-                          if (best.size > 50) {
-                              best.removeAt(best.lastIndex)
-                          }
                       }
 
                       reader.endArray()
                   }
+
                   reader.endObject()
 
                   if (!foundResults) {
@@ -682,67 +808,32 @@ jobs:
                       )
                   }
 
-                  return best.toList()
-              }
-
-              private fun detectPlatform(host: String): String {
-                  val h = host.lowercase(Locale.ROOT)
-                  fun matches(domain: String) =
-                      h == domain || h.endsWith(".$domain")
-
-                  return when {
-                      matches("instagram.com") -> "Instagram"
-                      matches("tiktok.com") -> "TikTok"
-                      matches("facebook.com") || matches("fb.com") -> "Facebook"
-                      matches("twitter.com") || matches("x.com") -> "X"
-                      matches("linkedin.com") -> "LinkedIn"
-                      matches("youtube.com") -> "YouTube"
-                      matches("vk.com") -> "VK"
-                      matches("ok.ru") -> "OK"
-                      matches("pinterest.com") -> "Pinterest"
-                      matches("t.me") || matches("telegram.org") -> "Telegram"
-                      matches("reddit.com") -> "Reddit"
-                      else -> "Web"
-                  }
+                  return links.values.toList()
               }
           }
 
-          fun profilesToJson(profiles: List<SocialProfile>): String =
+          fun linksToJson(links: List<SocialLink>): String =
               JSONArray().apply {
-                  profiles.take(50).forEach { profile ->
+                  links.forEach { link ->
                       put(JSONObject().apply {
-                          put("url", profile.url)
-                          put("score", profile.score.toDouble())
-                          put("platform", profile.platform)
-                          put("title", profile.title)
-                          put("thumbnailUrl", JSONObject.NULL)
+                          put("url", link.url)
+                          put("platform", link.platform)
                       })
                   }
               }.toString()
 
-          fun parseProfiles(json: String): List<SocialProfile> {
+          fun parseLinks(json: String): List<SocialLink> {
               val array = JSONArray(json)
-              return buildList {
-                  for (index in 0 until minOf(array.length(), 50)) {
-                      val item = array.optJSONObject(index) ?: continue
-                      val url = item.optString("url")
-                          .toHttpUrlOrNull() ?: continue
+              val links = linkedMapOf<String, SocialLink>()
 
-                      val rawScore = item.optDouble("score", 0.0)
-                      add(
-                          SocialProfile(
-                              url = url.toString(),
-                              score = if (rawScore.isFinite()) {
-                                  rawScore.coerceIn(0.0, 1.0).toFloat()
-                              } else {
-                                  0f
-                              },
-                              platform = item.optString("platform", "Web"),
-                              title = item.optString("title", "")
-                          )
-                      )
-                  }
-              }.distinctBy { it.url }.sortedByDescending { it.score }
+              for (index in 0 until array.length()) {
+                  val item = array.optJSONObject(index) ?: continue
+                  // Also filters non-social URLs out of old history records.
+                  val link = SocialLinks.parse(item.optString("url")) ?: continue
+                  links[link.url] = link
+              }
+
+              return links.values.toList()
           }
           EOF
 
@@ -837,37 +928,24 @@ jobs:
                       try {
                           val record = withContext(Dispatchers.IO) {
                               val bitmap = decodeUri(context, uri)
-
                               val file = try {
                                   savePhoto(context, bitmap).also { photo = it }
                               } finally {
                                   bitmap.recycle()
                               }
 
-                              _status.value = "שולח לשרת..."
-                              var apiError: String? = null
+                              _status.value = "מחפש קישורים חברתיים..."
 
-                              val profiles = try {
-                                  SearchClient.search(file, key, url)
-                              } catch (e: CancellationException) {
-                                  throw e
-                              } catch (e: Exception) {
-                                  Log.e("NeoFace", "Search failed", e)
-                                  apiError = e.message ?: "Search failed"
-                                  emptyList()
-                              }
-
-                              _status.value = "שומר תוצאות..."
+                              // On API failure, show the actual error.
+                              // Do not disguise failures as empty results.
+                              val links = SearchClient.search(file, key, url)
 
                               val newRecord = SearchRecord(
                                   photoPath = file.absolutePath,
-                                  resultsJson = profilesToJson(profiles),
-                                  resultCount = profiles.size,
-                                  error = apiError
+                                  resultsJson = linksToJson(links),
+                                  resultCount = links.size
                               )
 
-                              // Let an insert finish atomically with respect
-                              // to cancellation before cleaning up its photo.
                               withContext(NonCancellable) {
                                   val id = dao.insert(newRecord)
                                   saved = true
@@ -920,16 +998,12 @@ jobs:
           cat > app/src/main/java/com/neoface/MainActivity.kt <<'EOF'
           package com.neoface
 
-          import android.content.Intent
-          import android.graphics.Bitmap
-          import android.net.Uri
           import android.os.Bundle
           import androidx.activity.ComponentActivity
           import androidx.activity.compose.BackHandler
           import androidx.activity.compose.rememberLauncherForActivityResult
           import androidx.activity.compose.setContent
           import androidx.activity.result.contract.ActivityResultContracts
-          import androidx.compose.foundation.Image
           import androidx.compose.foundation.background
           import androidx.compose.foundation.clickable
           import androidx.compose.foundation.layout.*
@@ -946,10 +1020,7 @@ jobs:
           import androidx.compose.runtime.saveable.rememberSaveable
           import androidx.compose.ui.Alignment
           import androidx.compose.ui.Modifier
-          import androidx.compose.ui.draw.clip
           import androidx.compose.ui.graphics.Color
-          import androidx.compose.ui.graphics.asImageBitmap
-          import androidx.compose.ui.layout.ContentScale
           import androidx.compose.ui.platform.LocalContext
           import androidx.compose.ui.text.font.FontWeight
           import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -1018,7 +1089,7 @@ jobs:
                                   vm.closeResults()
                                   page = "search"
                               },
-                              icon = { Icon(Icons.Default.Image, null) },
+                              icon = { Icon(Icons.Default.Search, null) },
                               label = { Text("חיפוש") }
                           )
                           NavigationBarItem(
@@ -1051,11 +1122,6 @@ jobs:
                       when {
                           record != null -> ResultsScreen(
                               record = record,
-                              onBack = {
-                                  vm.closeResults()
-                                  page = "search"
-                              },
-                              onDelete = { vm.delete(record) },
                               onError = vm::showError
                           )
                           page == "history" -> HistoryScreen(vm)
@@ -1131,8 +1197,6 @@ jobs:
                       fontWeight = FontWeight.Bold
                   )
 
-                  Spacer(Modifier.height(8.dp))
-                  Text("חיפוש פנים הפוך", color = Color.Gray)
                   Spacer(Modifier.height(40.dp))
 
                   FloatingActionButton(
@@ -1162,41 +1226,101 @@ jobs:
                   }
 
                   Spacer(Modifier.height(24.dp))
-                  Text("בחר תמונה מהגלריה", color = NeoCyan)
-
-                  Spacer(Modifier.height(28.dp))
-                  Text(
-                      "התמונה תישלח לשרת המוגדר בהגדרות. השתמש רק בתמונות שיש לך הרשאה להשתמש בהן.",
-                      color = Color.Gray,
-                      textAlign = TextAlign.Center,
-                      style = MaterialTheme.typography.bodySmall
-                  )
+                  Text("בחר תמונה לחיפוש", color = NeoCyan)
               }
           }
 
           @Composable
-          private fun Thumbnail(path: String, modifier: Modifier) {
-              val bitmap by produceState<Bitmap?>(null, path) {
-                  value = withContext(Dispatchers.IO) {
-                      decodeThumbnail(path)
+          private fun ResultsScreen(
+              record: SearchRecord,
+              onError: (String) -> Unit
+          ) {
+              val context = LocalContext.current
+              var links by remember(record.id) {
+                  mutableStateOf<List<SocialLink>>(emptyList())
+              }
+              var loading by remember(record.id) { mutableStateOf(true) }
+              var parseError by remember(record.id) {
+                  mutableStateOf<String?>(null)
+              }
+
+              LaunchedEffect(record.id, record.resultsJson) {
+                  loading = true
+                  try {
+                      links = withContext(Dispatchers.Default) {
+                          parseLinks(record.resultsJson)
+                      }
+                  } catch (e: CancellationException) {
+                      throw e
+                  } catch (e: Exception) {
+                      parseError = e.message ?: "Cannot read saved links"
+                  } finally {
+                      loading = false
                   }
               }
 
-              val image = bitmap
-              if (image != null) {
-                  Image(
-                      bitmap = image.asImageBitmap(),
-                      contentDescription = null,
-                      modifier = modifier.clip(RoundedCornerShape(12.dp)),
-                      contentScale = ContentScale.Crop
-                  )
-              } else {
-                  Box(
-                      modifier.clip(RoundedCornerShape(12.dp))
-                          .background(NeoBg),
+              val message = record.error ?: parseError
+
+              when {
+                  loading -> Box(
+                      Modifier.fillMaxSize(),
                       contentAlignment = Alignment.Center
                   ) {
-                      Icon(Icons.Default.Image, null, tint = NeoCyan)
+                      CircularProgressIndicator(color = NeoCyan)
+                  }
+
+                  message != null -> Box(
+                      Modifier.fillMaxSize().padding(24.dp),
+                      contentAlignment = Alignment.Center
+                  ) {
+                      Text(
+                          message,
+                          color = NeoRed,
+                          textAlign = TextAlign.Center
+                      )
+                  }
+
+                  links.isEmpty() -> Box(
+                      Modifier.fillMaxSize().padding(24.dp),
+                      contentAlignment = Alignment.Center
+                  ) {
+                      Text(
+                          "השרת לא החזיר קישורים לרשתות חברתיות",
+                          color = Color.Gray,
+                          textAlign = TextAlign.Center
+                      )
+                  }
+
+                  else -> LazyColumn(
+                      modifier = Modifier.fillMaxSize(),
+                      contentPadding = PaddingValues(12.dp)
+                  ) {
+                      // Results contain only clickable social URLs.
+                      // No scores, titles, thumbnails, or non-social sites.
+                      items(links, key = { it.url }) { link ->
+                          Surface(
+                              color = NeoSurface,
+                              shape = RoundedCornerShape(14.dp),
+                              modifier = Modifier.fillMaxWidth()
+                                  .padding(vertical = 6.dp)
+                                  .clickable {
+                                      try {
+                                          SocialLinks.open(context, link)
+                                      } catch (e: Exception) {
+                                          onError(
+                                              e.message ?: "Cannot open link"
+                                          )
+                                      }
+                                  }
+                          ) {
+                              Text(
+                                  text = link.url,
+                                  color = NeoCyan,
+                                  modifier = Modifier.padding(18.dp),
+                                  style = MaterialTheme.typography.bodyLarge
+                              )
+                          }
+                      }
                   }
               }
           }
@@ -1208,181 +1332,12 @@ jobs:
               ).format(Date(timestamp))
 
           @Composable
-          private fun ResultsScreen(
-              record: SearchRecord,
-              onBack: () -> Unit,
-              onDelete: () -> Unit,
-              onError: (String) -> Unit
-          ) {
-              val context = LocalContext.current
-              var profiles by remember(record.id) {
-                  mutableStateOf<List<SocialProfile>>(emptyList())
-              }
-              var loading by remember(record.id) { mutableStateOf(true) }
-              var parseError by remember(record.id) {
-                  mutableStateOf<String?>(null)
-              }
-
-              LaunchedEffect(record.id, record.resultsJson) {
-                  loading = true
-                  try {
-                      profiles = withContext(Dispatchers.Default) {
-                          parseProfiles(record.resultsJson)
-                      }
-                  } catch (e: CancellationException) {
-                      throw e
-                  } catch (e: Exception) {
-                      parseError = e.message ?: "Cannot read saved results"
-                  } finally {
-                      loading = false
-                  }
-              }
-
-              Column(Modifier.fillMaxSize()) {
-                  Surface(color = NeoSurface) {
-                      Row(
-                          Modifier.fillMaxWidth().padding(16.dp),
-                          verticalAlignment = Alignment.CenterVertically
-                      ) {
-                          Thumbnail(record.photoPath, Modifier.size(64.dp))
-                          Spacer(Modifier.width(12.dp))
-
-                          Column(Modifier.weight(1f)) {
-                              Text(
-                                  "תוצאות חיפוש",
-                                  color = NeoCyan,
-                                  fontWeight = FontWeight.Bold
-                              )
-                              Text("${record.resultCount} פרופילים")
-                              Text(
-                                  formattedDate(record.timestamp),
-                                  color = Color.Gray,
-                                  style = MaterialTheme.typography.bodySmall
-                              )
-                          }
-
-                          IconButton(onClick = onDelete) {
-                              Icon(Icons.Default.Delete, "מחק", tint = NeoRed)
-                          }
-                      }
-                  }
-
-                  LazyColumn(
-                      modifier = Modifier.weight(1f).fillMaxWidth(),
-                      contentPadding = PaddingValues(12.dp)
-                  ) {
-                      val message = record.error ?: parseError
-                      if (message != null) {
-                          item {
-                              Surface(
-                                  color = NeoRed.copy(alpha = 0.15f),
-                                  shape = RoundedCornerShape(12.dp)
-                              ) {
-                                  Text(
-                                      message,
-                                      modifier = Modifier.padding(16.dp),
-                                      color = NeoRed
-                                  )
-                              }
-                          }
-                      }
-
-                      if (loading) {
-                          item {
-                              Box(
-                                  Modifier.fillMaxWidth().padding(32.dp),
-                                  contentAlignment = Alignment.Center
-                              ) {
-                                  CircularProgressIndicator(color = NeoCyan)
-                              }
-                          }
-                      } else if (profiles.isEmpty() && message == null) {
-                          item {
-                              Text(
-                                  "לא נמצאו פרופילים",
-                                  modifier = Modifier.fillMaxWidth()
-                                      .padding(32.dp),
-                                  textAlign = TextAlign.Center
-                              )
-                          }
-                      }
-
-                      items(profiles, key = { it.url }) { profile ->
-                          Surface(
-                              color = NeoSurface,
-                              shape = RoundedCornerShape(14.dp),
-                              modifier = Modifier.fillMaxWidth()
-                                  .padding(vertical = 6.dp)
-                                  .clickable {
-                                      try {
-                                          context.startActivity(
-                                              Intent(
-                                                  Intent.ACTION_VIEW,
-                                                  Uri.parse(profile.url)
-                                              )
-                                          )
-                                      } catch (e: Exception) {
-                                          onError(
-                                              e.message ?: "Cannot open link"
-                                          )
-                                      }
-                                  }
-                          ) {
-                              Column(Modifier.padding(16.dp)) {
-                                  Row(
-                                      verticalAlignment = Alignment.CenterVertically
-                                  ) {
-                                      Text(
-                                          profile.platform,
-                                          color = NeoCyan,
-                                          fontWeight = FontWeight.Bold,
-                                          modifier = Modifier.weight(1f)
-                                      )
-                                      Text(
-                                          "${(profile.score * 100).toInt()}%",
-                                          color = NeoGreen
-                                      )
-                                      Spacer(Modifier.width(10.dp))
-                                      Icon(
-                                          Icons.Default.OpenInNew,
-                                          null,
-                                          tint = NeoCyan
-                                      )
-                                  }
-
-                                  if (profile.title.isNotBlank()) {
-                                      Spacer(Modifier.height(6.dp))
-                                      Text(profile.title, maxLines = 2)
-                                  }
-
-                                  Spacer(Modifier.height(4.dp))
-                                  Text(
-                                      profile.url,
-                                      color = Color.Gray,
-                                      style = MaterialTheme.typography.bodySmall,
-                                      maxLines = 2
-                                  )
-                              }
-                          }
-                      }
-                  }
-
-                  Button(
-                      onClick = onBack,
-                      modifier = Modifier.fillMaxWidth().padding(16.dp)
-                  ) {
-                      Text("חפש שוב")
-                  }
-              }
-          }
-
-          @Composable
           private fun HistoryScreen(vm: NeoViewModel) {
               val records by vm.history.collectAsState()
 
               Column(Modifier.fillMaxSize()) {
                   Text(
-                      "היסטוריית חיפושים (${records.size})",
+                      "היסטוריית חיפושים",
                       modifier = Modifier.padding(16.dp),
                       color = NeoCyan,
                       style = MaterialTheme.typography.titleLarge
@@ -1409,33 +1364,11 @@ jobs:
                                       Modifier.padding(12.dp),
                                       verticalAlignment = Alignment.CenterVertically
                                   ) {
-                                      Thumbnail(
-                                          record.photoPath,
-                                          Modifier.size(52.dp)
+                                      Text(
+                                          formattedDate(record.timestamp),
+                                          color = NeoCyan,
+                                          modifier = Modifier.weight(1f)
                                       )
-
-                                      Spacer(Modifier.width(12.dp))
-
-                                      Column(Modifier.weight(1f)) {
-                                          Text(
-                                              if (record.error == null) {
-                                                  "${record.resultCount} פרופילים"
-                                              } else {
-                                                  "שגיאה בחיפוש"
-                                              },
-                                              color = if (record.error == null) {
-                                                  NeoCyan
-                                              } else {
-                                                  NeoRed
-                                              }
-                                          )
-                                          Text(
-                                              formattedDate(record.timestamp),
-                                              color = Color.Gray,
-                                              style = MaterialTheme.typography.bodySmall
-                                          )
-                                      }
-
                                       IconButton(
                                           onClick = { vm.delete(record) }
                                       ) {
@@ -1540,19 +1473,11 @@ jobs:
 
                   Spacer(Modifier.height(24.dp))
 
-                  Surface(
-                      color = NeoSurface,
-                      shape = RoundedCornerShape(14.dp)
-                  ) {
-                      Text(
-                          "התמונה ומפתח ה-API נשלחים לשרת שהגדרת. הזן רק כתובת שרת שאתה סומך עליו. אין צורך בהרשאת מצלמה או אחסון כדי לבחור תמונה.",
-                          modifier = Modifier.padding(16.dp),
-                          style = MaterialTheme.typography.bodySmall
-                      )
-                  }
-
-                  Spacer(Modifier.height(24.dp))
-                  Text("NeoFace v1.0.1", color = Color.Gray)
+                  Text(
+                      "התמונה ומפתח ה-API נשלחים לשרת שהגדרת. השתמש רק בשרת שאתה סומך עליו ובתמונות שיש לך הרשאה להשתמש בהן.",
+                      color = Color.Gray,
+                      style = MaterialTheme.typography.bodySmall
+                  )
               }
           }
           EOF
@@ -1570,18 +1495,19 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: NeoFace build ${{ github.run_number }}
+          tag_name: social-${{ github.run_number }}
+          name: NeoFace Social Links ${{ github.run_number }}
           body: |
-            NeoFace Android debug build.
+            NeoFace social-links-only Android debug build.
 
-            Download app-debug.apk, install it, and enter your API
-            key and HTTPS server address in Settings.
+            Results display social URLs only.
+            Tap a result to try its official installed Android app.
+            If the app cannot handle the link, use the normal web handler.
 
-            This build uses the configured server's /v1/api/search
-            endpoint and expects a JSON results array.
+            Enter your API key and HTTPS server address in Settings.
+            The configured endpoint must return a JSON results array.
 
-            Only upload images you have permission to use.
+            Only accounts returned by the search provider can be shown.
           files: app/build/outputs/apk/debug/app-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
