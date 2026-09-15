@@ -25,8 +25,11 @@ jobs:
         with:
           gradle-version: 8.4
 
+      # תיקון: חזרה לגרסה יציבה של הגדרת ה-SDK שעוקפת את הבאג של GitHub
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v2
+        with:
+          cmdline-tools-version: '11076708'
 
       - name: Build project files
         run: |
@@ -115,7 +118,7 @@ jobs:
               implementation 'io.coil-kt:coil-compose:2.5.0'
               implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
               implementation 'androidx.core:core-ktx:1.12.0'
-              implementation 'com.google.code.gson:gson:2.10.1' // ספריית Gson לקריאה בזרימה
+              implementation 'com.google.code.gson:gson:2.10.1'
           }
           EOF
 
@@ -444,7 +447,7 @@ jobs:
                           val bodyStream = resp.body?.byteStream()
                               ?: return@withContext Result.failure(Exception("גוף התשובה ריק"))
                           
-                          // שימוש ב-Gson לקריאה בזרימה - מדלג על תמונות ה-Base64 מבלי להעמיס אותן לזיכרון
+                          // קריאה בזרימה - מדלג על Base64
                           val reader = JsonReader(InputStreamReader(bodyStream, "UTF-8"))
                           val results = mutableListOf<SocialProfile>()
                           
@@ -464,7 +467,7 @@ jobs:
                                               "source_url", "url" -> url = reader.nextString()
                                               "score" -> score = reader.nextDouble()
                                               "domain", "title" -> title = reader.nextString()
-                                              "image_url" -> reader.skipValue() // מדלג על ה-Base64!
+                                              "image_url" -> reader.skipValue() // מדלג על ה-Base64
                                               else -> reader.skipValue()
                                           }
                                       }
