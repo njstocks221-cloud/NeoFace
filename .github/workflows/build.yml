@@ -1,7 +1,3 @@
-My previous version introduced errors, including a missing Image import and a parser that failed when more than 50 results arrived. This replacement fixes those issues, preserves your original Room history database and settings, and clears old generated source files to avoid conflicts.
-
-Replace all of .github/workflows/build.yml with this block. I haven’t compiled it here, and GitHub’s “File could not be edited” message is a separate saving issue.
-
 name: Build NeoFace APK
 
 on:
@@ -17,21 +13,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      name: Checkout
+      - name: Checkout
         uses: actions/checkout@v4
 
-      name: Setup Java
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      name: Setup Gradle
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.4"
 
-      name: Install Android SDK packages
+      - name: Install Android SDK packages
         shell: bash
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
@@ -45,11 +41,11 @@ jobs:
             "platforms;android-34" \
             "build-tools;34.0.0"
 
-      name: Generate project
+      - name: Generate project
         shell: bash
         run: |
-This workflow generates the entire app.
-Remove old generated sources so they cannot conflict.
+          # This workflow generates the entire app.
+          # Remove old generated sources so they cannot conflict.
           rm -rf app
           mkdir -p app/src/main/java/com/neoface
           mkdir -p app/src/main/res/values
@@ -57,26 +53,199 @@ Remove old generated sources so they cannot conflict.
 
           printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
 
-          cat > settings.gradle  build.gradle  gradle.properties  app/build.gradle  app/src/main/AndroidManifest.xml
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
 
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "NeoFace"
+          include ':app'
           EOF
 
-          cat > app/src/main/res/values/themes.xml
-
-                  #0A0E27
-                  #0A0E27
-                  #0A0E27
-                  false
-
-              NeoFace
-
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.2.0' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.20' apply false
+              id 'org.jetbrains.kotlin.kapt' version '1.9.20' apply false
+          }
           EOF
 
-          cat > app/src/main/res/drawable/ic_neo_logo.xml
-
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          kotlin.code.style=official
           EOF
 
-          cat > app/src/main/java/com/neoface/Data.kt >
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+              id 'org.jetbrains.kotlin.kapt'
+          }
+
+          android {
+              namespace 'com.neoface'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.neoface"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0.1"
+              }
+
+              buildFeatures {
+                  compose true
+              }
+
+              composeOptions {
+                  kotlinCompilerExtensionVersion '1.5.4'
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+
+              packaging {
+                  resources {
+                      excludes += [
+                          'META-INF/AL2.0',
+                          'META-INF/LGPL2.1'
+                      ]
+                  }
+              }
+          }
+
+          dependencies {
+              implementation platform('androidx.compose:compose-bom:2024.02.00')
+              implementation 'androidx.compose.ui:ui'
+              implementation 'androidx.compose.foundation:foundation'
+              implementation 'androidx.compose.material3:material3'
+              implementation 'androidx.compose.material:material-icons-extended'
+
+              implementation 'androidx.core:core-ktx:1.12.0'
+              implementation 'androidx.activity:activity-compose:1.8.2'
+              implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0'
+              implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0'
+              implementation 'androidx.exifinterface:exifinterface:1.3.7'
+
+              implementation 'androidx.room:room-runtime:2.6.1'
+              implementation 'androidx.room:room-ktx:2.6.1'
+              kapt 'androidx.room:room-compiler:2.6.1'
+
+              implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+              implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+              implementation 'com.google.code.gson:gson:2.10.1'
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+
+              <application
+                  android:label="NeoFace"
+                  android:icon="@drawable/ic_neo_logo"
+                  android:roundIcon="@drawable/ic_neo_logo"
+                  android:theme="@style/Theme.NeoFace"
+                  android:allowBackup="false"
+                  android:supportsRtl="true"
+                  android:usesCleartextTraffic="false">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/themes.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.NeoFace" parent="android:Theme.Material.NoActionBar">
+                  <item name="android:statusBarColor">#0A0E27</item>
+                  <item name="android:navigationBarColor">#0A0E27</item>
+                  <item name="android:windowBackground">#0A0E27</item>
+                  <item name="android:windowLightStatusBar">false</item>
+              </style>
+              <string name="app_name">NeoFace</string>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/drawable/ic_neo_logo.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#0A0E27"
+                  android:pathData="M0,0h108v108h-108z" />
+              <path
+                  android:fillColor="#00000000"
+                  android:strokeColor="#7C4DFF"
+                  android:strokeWidth="3"
+                  android:pathData="M54,14 A40,40 0 1,1 53.99,14 Z" />
+              <path
+                  android:fillColor="#00000000"
+                  android:strokeColor="#00E5FF"
+                  android:strokeWidth="6"
+                  android:strokeLineCap="round"
+                  android:strokeLineJoin="round"
+                  android:pathData="M36,76 L36,32 L72,76 L72,32" />
+          </vector>
+          EOF
+
+          cat > app/src/main/java/com/neoface/Data.kt <<'EOF'
+          package com.neoface
+
+          import android.content.Context
+          import androidx.room.*
+          import kotlinx.coroutines.flow.Flow
+
+          @Entity(tableName = "searches")
+          data class SearchRecord(
+              @PrimaryKey(autoGenerate = true) val id: Long = 0,
+              val photoPath: String,
+              val timestamp: Long = System.currentTimeMillis(),
+              val resultsJson: String,
+              val resultCount: Int = 0,
+              val error: String? = null
+          )
+
+          @Dao
+          interface SearchDao {
+              @Insert
+              suspend fun insert(record: SearchRecord): Long
+
+              @Query("SELECT * FROM searches ORDER BY timestamp DESC")
+              fun all(): Flow<List<SearchRecord>>
 
               @Delete
               suspend fun delete(record: SearchRecord)
@@ -130,9 +299,32 @@ Remove old generated sources so they cannot conflict.
           }
           EOF
 
-          cat > app/src/main/java/com/neoface/Images.kt  0)
+          cat > app/src/main/java/com/neoface/Images.kt <<'EOF'
+          package com.neoface
 
-              if (bounds.outWidth  maxDimension ||
+          import android.content.Context
+          import android.graphics.Bitmap
+          import android.graphics.BitmapFactory
+          import android.graphics.Matrix
+          import android.net.Uri
+          import androidx.exifinterface.media.ExifInterface
+          import java.io.File
+          import java.io.IOException
+          import java.util.UUID
+
+          private fun decodeOptions(
+              bounds: BitmapFactory.Options,
+              maxDimension: Int
+          ): BitmapFactory.Options {
+              require(maxDimension > 0)
+
+              if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                  throw IOException("Unsupported or damaged image")
+              }
+
+              var sample = 1
+              while (
+                  bounds.outWidth / sample > maxDimension ||
                   bounds.outHeight / sample > maxDimension
               ) {
                   sample *= 2
@@ -240,7 +432,46 @@ Remove old generated sources so they cannot conflict.
           }
           EOF
 
-          cat > app/src/main/java/com/neoface/SearchClient.kt  {
+          cat > app/src/main/java/com/neoface/SearchClient.kt <<'EOF'
+          package com.neoface
+
+          import com.google.gson.stream.JsonReader
+          import com.google.gson.stream.JsonToken
+          import kotlinx.coroutines.suspendCancellableCoroutine
+          import okhttp3.*
+          import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+          import okhttp3.MediaType.Companion.toMediaType
+          import okhttp3.RequestBody.Companion.asRequestBody
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.io.File
+          import java.io.IOException
+          import java.util.Locale
+          import java.util.concurrent.TimeUnit
+          import kotlin.coroutines.resumeWithException
+
+          data class SocialProfile(
+              val url: String,
+              val score: Float,
+              val platform: String,
+              val title: String
+          )
+
+          object SearchClient {
+              private val http = OkHttpClient.Builder()
+                  .connectTimeout(45, TimeUnit.SECONDS)
+                  .readTimeout(300, TimeUnit.SECONDS)
+                  .writeTimeout(120, TimeUnit.SECONDS)
+                  .callTimeout(330, TimeUnit.SECONDS)
+                  .followRedirects(false)
+                  .followSslRedirects(false)
+                  .build()
+
+              suspend fun search(
+                  photo: File,
+                  apiKey: String,
+                  baseUrl: String
+              ): List<SocialProfile> {
                   require(apiKey.isNotBlank()) { "Missing API key" }
 
                   val base = baseUrl.trim().toHttpUrlOrNull()
@@ -343,13 +574,13 @@ Remove old generated sources so they cannot conflict.
               private fun readResults(
                   reader: JsonReader,
                   call: Call
-              ): List {
+              ): List<SocialProfile> {
                   if (reader.peek() != JsonToken.BEGIN_OBJECT) {
                       throw IOException("Expected a JSON response object")
                   }
 
                   // Keep memory bounded instead of retaining every result.
-                  val best = mutableListOf()
+                  val best = mutableListOf<SocialProfile>()
                   var foundResults = false
 
                   reader.beginObject()
@@ -476,7 +707,7 @@ Remove old generated sources so they cannot conflict.
               }
           }
 
-          fun profilesToJson(profiles: List): String =
+          fun profilesToJson(profiles: List<SocialProfile>): String =
               JSONArray().apply {
                   profiles.take(50).forEach { profile ->
                       put(JSONObject().apply {
@@ -489,7 +720,7 @@ Remove old generated sources so they cannot conflict.
                   }
               }.toString()
 
-          fun parseProfiles(json: String): List {
+          fun parseProfiles(json: String): List<SocialProfile> {
               val array = JSONArray(json)
               return buildList {
                   for (index in 0 until minOf(array.length(), 50)) {
@@ -515,15 +746,44 @@ Remove old generated sources so they cannot conflict.
           }
           EOF
 
-          cat > app/src/main/java/com/neoface/NeoViewModel.kt (null)
+          cat > app/src/main/java/com/neoface/NeoViewModel.kt <<'EOF'
+          package com.neoface
+
+          import android.app.Application
+          import android.net.Uri
+          import android.util.Log
+          import androidx.lifecycle.AndroidViewModel
+          import androidx.lifecycle.viewModelScope
+          import kotlinx.coroutines.CancellationException
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.Job
+          import kotlinx.coroutines.NonCancellable
+          import kotlinx.coroutines.flow.*
+          import kotlinx.coroutines.launch
+          import kotlinx.coroutines.withContext
+          import java.io.File
+
+          class NeoViewModel(application: Application) :
+              AndroidViewModel(application) {
+
+              private val context = application.applicationContext
+              private val dao = AppDatabase.get(context).dao()
+
+              private val _busy = MutableStateFlow(false)
+              val busy = _busy.asStateFlow()
+
+              private val _status = MutableStateFlow("")
+              val status = _status.asStateFlow()
+
+              private val _error = MutableStateFlow<String?>(null)
               val error = _error.asStateFlow()
 
-              private val _selected = MutableStateFlow(null)
+              private val _selected = MutableStateFlow<SearchRecord?>(null)
               val selected = _selected.asStateFlow()
 
               private var searchJob: Job? = null
 
-              val history: StateFlow> = dao.all()
+              val history: StateFlow<List<SearchRecord>> = dao.all()
                   .catch { e ->
                       if (e is CancellationException) throw e
                       report(e)
@@ -657,7 +917,131 @@ Remove old generated sources so they cannot conflict.
           }
           EOF
 
-          cat > app/src/main/java/com/neoface/MainActivity.kt
+          cat > app/src/main/java/com/neoface/MainActivity.kt <<'EOF'
+          package com.neoface
+
+          import android.content.Intent
+          import android.graphics.Bitmap
+          import android.net.Uri
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.BackHandler
+          import androidx.activity.compose.rememberLauncherForActivityResult
+          import androidx.activity.compose.setContent
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.compose.foundation.Image
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.shape.CircleShape
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.runtime.saveable.rememberSaveable
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.graphics.asImageBitmap
+          import androidx.compose.ui.layout.ContentScale
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.text.input.PasswordVisualTransformation
+          import androidx.compose.ui.text.style.TextAlign
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.window.Dialog
+          import androidx.compose.ui.window.DialogProperties
+          import androidx.lifecycle.viewmodel.compose.viewModel
+          import kotlinx.coroutines.CancellationException
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.withContext
+          import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+
+          private val NeoPurple = Color(0xFF7C4DFF)
+          private val NeoCyan = Color(0xFF00E5FF)
+          private val NeoBg = Color(0xFF0A0E27)
+          private val NeoSurface = Color(0xFF151A35)
+          private val NeoGreen = Color(0xFF00E676)
+          private val NeoRed = Color(0xFFFF5252)
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  setContent {
+                      MaterialTheme(
+                          colorScheme = darkColorScheme(
+                              primary = NeoPurple,
+                              secondary = NeoCyan,
+                              background = NeoBg,
+                              surface = NeoSurface,
+                              onPrimary = Color.White,
+                              onBackground = Color.White,
+                              onSurface = Color.White,
+                              error = NeoRed
+                          )
+                      ) {
+                          NeoFaceApp()
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          private fun NeoFaceApp(vm: NeoViewModel = viewModel()) {
+              var page by rememberSaveable { mutableStateOf("search") }
+              val selected by vm.selected.collectAsState()
+              val busy by vm.busy.collectAsState()
+              val status by vm.status.collectAsState()
+              val error by vm.error.collectAsState()
+
+              BackHandler(enabled = selected != null && !busy) {
+                  vm.closeResults()
+              }
+
+              Scaffold(
+                  containerColor = NeoBg,
+                  bottomBar = {
+                      NavigationBar(containerColor = NeoSurface) {
+                          NavigationBarItem(
+                              selected = page == "search" && selected == null,
+                              onClick = {
+                                  vm.closeResults()
+                                  page = "search"
+                              },
+                              icon = { Icon(Icons.Default.Image, null) },
+                              label = { Text("חיפוש") }
+                          )
+                          NavigationBarItem(
+                              selected = page == "history" && selected == null,
+                              onClick = {
+                                  vm.closeResults()
+                                  page = "history"
+                              },
+                              icon = { Icon(Icons.Default.History, null) },
+                              label = { Text("היסטוריה") }
+                          )
+                          NavigationBarItem(
+                              selected = page == "settings" && selected == null,
+                              onClick = {
+                                  vm.closeResults()
+                                  page = "settings"
+                              },
+                              icon = { Icon(Icons.Default.Settings, null) },
+                              label = { Text("הגדרות") }
+                          )
+                      }
+                  }
+              ) { padding ->
                   Box(
                       Modifier.fillMaxSize()
                           .padding(padding)
@@ -792,7 +1176,7 @@ Remove old generated sources so they cannot conflict.
 
           @Composable
           private fun Thumbnail(path: String, modifier: Modifier) {
-              val bitmap by produceState(null, path) {
+              val bitmap by produceState<Bitmap?>(null, path) {
                   value = withContext(Dispatchers.IO) {
                       decodeThumbnail(path)
                   }
@@ -832,11 +1216,11 @@ Remove old generated sources so they cannot conflict.
           ) {
               val context = LocalContext.current
               var profiles by remember(record.id) {
-                  mutableStateOf>(emptyList())
+                  mutableStateOf<List<SocialProfile>>(emptyList())
               }
               var loading by remember(record.id) { mutableStateOf(true) }
               var parseError by remember(record.id) {
-                  mutableStateOf(null)
+                  mutableStateOf<String?>(null)
               }
 
               LaunchedEffect(record.id, record.resultsJson) {
@@ -1173,17 +1557,17 @@ Remove old generated sources so they cannot conflict.
           }
           EOF
 
-      name: Build Debug APK
+      - name: Build Debug APK
         run: gradle --no-daemon :app:assembleDebug --stacktrace
 
-      name: Upload APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: NeoFace-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      name: Create Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
