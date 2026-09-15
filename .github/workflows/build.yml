@@ -25,11 +25,11 @@ jobs:
         with:
           gradle-version: 8.4
 
-      # תיקון: חזרה לגרסה יציבה של הגדרת ה-SDK שעוקפת את הבאג של GitHub
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v2
-        with:
-          cmdline-tools-version: '11076708'
+      # תיקון קריטי: אנחנו מדלגים על התקנת ה-SDK של גיטהאב (שנשברה)
+      # ומשתמשים ב-SDK שכבר מותקן על השרת שלהם מראש
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Build project files
         run: |
@@ -40,7 +40,8 @@ jobs:
           mkdir -p app/src/main/res/drawable
           mkdir -p app/src/main/res/xml
 
-          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          # הגדרת מיקום ה-SDK המובנה של השרת
+          printf 'sdk.dir=/usr/local/lib/android/sdk\n' > local.properties
 
           cat > settings.gradle << 'EOF'
           pluginManagement {
@@ -447,7 +448,6 @@ jobs:
                           val bodyStream = resp.body?.byteStream()
                               ?: return@withContext Result.failure(Exception("גוף התשובה ריק"))
                           
-                          // קריאה בזרימה - מדלג על Base64
                           val reader = JsonReader(InputStreamReader(bodyStream, "UTF-8"))
                           val results = mutableListOf<SocialProfile>()
                           
@@ -467,7 +467,7 @@ jobs:
                                               "source_url", "url" -> url = reader.nextString()
                                               "score" -> score = reader.nextDouble()
                                               "domain", "title" -> title = reader.nextString()
-                                              "image_url" -> reader.skipValue() // מדלג על ה-Base64
+                                              "image_url" -> reader.skipValue()
                                               else -> reader.skipValue()
                                           }
                                       }
